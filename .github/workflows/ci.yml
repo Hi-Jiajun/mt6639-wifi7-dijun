@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Expose Android build-tools and platform jar
+        run: |
+          set -eu
+          if [ -n "${ANDROID_HOME:-}" ] && [ -d "$ANDROID_HOME/build-tools" ]; then
+            bt=$(ls -1d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+            echo "$bt" >> "$GITHUB_PATH"
+          fi
+          if [ -n "${ANDROID_HOME:-}" ] && [ -d "$ANDROID_HOME/platforms" ]; then
+            plat=$(ls -1d "$ANDROID_HOME"/platforms/android-* | sort -V | tail -1)
+            echo "ANDROID_JAR=$plat/android.jar" >> "$GITHUB_ENV"
+          fi
+          command -v aapt2 || echo "aapt2: not available, APK checks will skip"
+          command -v javac || echo "javac: not available, Java fixtures will skip"
+
+      - name: Offline test suite
+        run: python3 -m unittest discover -s tests -v

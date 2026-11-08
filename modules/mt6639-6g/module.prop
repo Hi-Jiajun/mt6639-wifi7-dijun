@@ -1,0 +1,6 @@
+id=mt6639-6g
+name=MT6639 6GHz 实验开关（默认持续启用）
+version=v0.2.16
+versionCode=18
+author=mt6639-dijun
+description=v0.2.16 drops the hardcoded v0.2.13 pin in bin/post-reboot-check.sh: that checker is also used by the hotspot module as its station checker, so every version bump made hotspot teardown fail with recovery_rc=1. It now verifies the module tree against its own SHA256SUMS instead. KernelSU 就绪后默认持续启用；操作按钮、禁用/移除模块触发恢复。v0.2.15 把 v0.2.14 的软重启看护扩成两条入口共用同一判定：软重启快车道（system_server 变化）与每 60 秒一次的完整性自检（cold boot 后模块加载、驱动重载等任何静默掉注册从内部看完全一样）。只有 6135MHz 确实缺失、事务仍 active、Wi-Fi 本为开启时才调一次有界 refresh；每 boot 连续失败上限 2 次，成功清零，Wi-Fi 关着绝不代开。临时覆盖 DisallowBand6G 与 US country，恢复 CN/auto override、原厂配置和网络；版本锁、备份、独立看护。跨启动仅在双 namespace 原厂验证后归档旧记录；真实重启验收待完成。

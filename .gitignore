@@ -1,0 +1,15 @@
+# Private evidence, backups, third-party firmware and scratch work.
+local/
+outputs/
+# Build products and release binaries live in GitHub Releases, not in the tree.
+*.zip
+*.apk
+*.class
+*.dex
+*.jar
+*.keystore
+build/
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv/

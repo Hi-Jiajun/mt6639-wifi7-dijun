@@ -1,0 +1,533 @@
+#!/system/bin/sh
+# Explicit KernelSU action controller for the native EHT hotspot experiment.
+set -u
+umask 077
+MODDIR=${1:-/data/adb/modules/mt6639-hotspot}
+OP=${2:-status}
+ARG_BAND=${3:-}
+ARG_WIDTH=${4:-}
+case "$MODDIR" in /data/adb/modules/mt6639-hotspot) ;; *) exit 64 ;; esac
+[ -d "$MODDIR" ] && [ ! -L "$MODDIR" ] || exit 66
+[ "$(id -u)" = 0 ] && [ "$(id -Z)" = u:r:ksu:s0 ] || exit 77
+# kernel-adjacent callers (service.sh, action.sh, the Settings worker) start with
+# only PATH set; app_process needs the Android runtime environment. Guard the
+# source: '.' is a special builtin, so a missing file aborts a non-interactive
+# shell rather than falling through.
+if [ -f "$MODDIR/bin/android-env.sh" ] && [ ! -L "$MODDIR/bin/android-env.sh" ]; then
+    . "$MODDIR/bin/android-env.sh"
+fi
+
+WORK=/data/adb/mt6639-hotspot
+PRIVATE=$WORK/private
+SESSION=$WORK/session
+TASK_FILE=$SESSION/task
+PID_FILE=$SESSION/pid
+RUN_START_FILE=$SESSION/runner.start
+BOOT_FILE=$SESSION/boot
+BAND_FILE=$SESSION/band
+WIDTH_FILE=$SESSION/width
+STATE_FILE=$WORK/state
+LOG=$WORK/control.log
+rc=0
+
+[ -d "$WORK" ] || mkdir -p "$WORK"
+chmod 0700 "$WORK"
+log() {
+    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG" 2>/dev/null
+    printf '%s\n' "$*"
+}
+publish_status() {
+    sh "$MODDIR/bin/status_snapshot.sh" "$MODDIR" publish "$@" >/dev/null
+}
+boot_id() { cat /proc/sys/kernel/random/boot_id 2>/dev/null; }
+sha_ok() { (cd "$MODDIR" && sha256sum -c SHA256SUMS >/dev/null 2>&1); }
+session_task() {
+    [ ! -L "$TASK_FILE" ] && [ -f "$TASK_FILE" ] && [ -s "$TASK_FILE" ] || return 1
+    task=$(cat "$TASK_FILE") || return 1
+    case "$task" in /data/local/tmp/mt6639-native-ap-*) ;; *) return 2 ;; esac
+    case "$task" in *[!a-zA-Z0-9/_-]*|*/../*|*/./*|*//*) return 2 ;; esac
+    [ -d "$task" ] && [ ! -L "$task" ] && [ "$(stat -c %u "$task")" = 0 ] || return 2
+    printf '%s\n' "$task"
+}
+runner_alive() {
+    task=$(session_task) || return 1
+    same_boot || return 1
+    [ ! -L "$PID_FILE" ] && [ -f "$PID_FILE" ] || return 1
+    pid=$(cat "$PID_FILE" 2>/dev/null)
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$pid" -gt 1 ] && kill -0 "$pid" 2>/dev/null || return 1
+    [ ! -L "$RUN_START_FILE" ] && [ -f "$RUN_START_FILE" ] || return 1
+    [ "$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null)" = \
+        "$(cat "$RUN_START_FILE" 2>/dev/null)" ] || return 1
+    # /proc/<pid>/cmdline reads can block on a wedged process; bound them so a
+    # start never hangs in the "starting" state.
+    cmd=$(timeout 2 tr '\000' ' ' < "/proc/$pid/cmdline" 2>/dev/null) || return 1
+    case "$cmd" in *"$task/softap_native_once.sh"*"$task"*) return 0 ;; esac
+    return 1
+}
+guardian_alive() {
+    task=$(session_task) || return 1
+    same_boot || return 1
+    [ ! -L "$task/guardian.pid" ] && [ -f "$task/guardian.pid" ] || return 1
+    [ ! -L "$task/guardian.start" ] && [ -f "$task/guardian.start" ] || return 1
+    pid=$(cat "$task/guardian.pid" 2>/dev/null)
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$pid" -gt 1 ] && kill -0 "$pid" 2>/dev/null || return 1
+    [ "$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null)" = \
+        "$(cat "$task/guardian.start" 2>/dev/null)" ] || return 1
+    cmd=$(timeout 2 tr '\000' ' ' < "/proc/$pid/cmdline" 2>/dev/null) || return 1
+    case "$cmd" in *"$task"*guardian*) return 0 ;; esac
+    return 1
+}
+guardian_process_without_record() {
+    task=$(session_task) || return 0
+    for p in /proc/[0-9]*; do
+        [ -r "$p/cmdline" ] || continue
+        cmd=$(timeout 2 tr '\000' ' ' < "$p/cmdline" 2>/dev/null) || continue
+        case "$cmd" in *"$task"*guardian*) return 0 ;; esac
+    done
+    return 1
+}
+native_alive() {
+    task=$(session_task) || return 1
+    [ ! -L "$task/native.pid" ] && [ -f "$task/native.pid" ] || return 1
+    [ ! -L "$task/native.start" ] && [ -f "$task/native.start" ] || return 1
+    pid=$(cat "$task/native.pid" 2>/dev/null)
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$pid" -gt 1 ] && kill -0 "$pid" 2>/dev/null || return 1
+    [ "$(readlink "/proc/$pid/exe" 2>/dev/null)" = "$task/hostapd" ] || return 1
+    [ "$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null)" = \
+        "$(cat "$task/native.start" 2>/dev/null)" ] || return 1
+}
+same_boot() {
+    [ ! -L "$BOOT_FILE" ] && [ -f "$BOOT_FILE" ] &&
+        [ "$(cat "$BOOT_FILE" 2>/dev/null)" = "$(boot_id)" ]
+}
+clear_session() {
+    [ ! -L "$SESSION" ] && { [ ! -e "$SESSION" ] || [ -d "$SESSION" ]; } || return 1
+    if [ -d "$SESSION" ]; then
+        archive=$WORK/history/$(date +%Y%m%d-%H%M%S)-$$
+        mkdir -p "$archive" || return 1
+        cp -p "$SESSION"/* "$archive"/ 2>/dev/null || true
+    fi
+    printf '%s\n' idle > "$STATE_FILE" || return 1
+    rm -f "$TASK_FILE" "$PID_FILE" "$RUN_START_FILE" "$BOOT_FILE" "$BAND_FILE" "$WIDTH_FILE" || return 1
+    rmdir "$SESSION" 2>/dev/null || true
+}
+active_checked() {
+    runner_alive || return 1
+    guardian_alive || return 1
+    native_alive || return 1
+    task=$(session_task) || return 1
+    band=$(cat "$BAND_FILE" 2>/dev/null)
+    width=$(cat "$WIDTH_FILE" 2>/dev/null)
+    case "$band:$width" in
+        2g:20|5g:20|5g:40|5g:80|6g:20|6g:40|6g:80|6g:160|6g:320) ;;
+        *) return 1 ;;
+    esac
+    tmp=$task/status.recheck.$$
+    timeout 5 "$task/hostapd_cli" -p "$task/ctrl" -i mtap0 status > "$tmp" 2>&1 || {
+        rm -f "$tmp"
+        return 1
+    }
+    grep -Fxq state=ENABLED "$tmp" || { rm -f "$tmp"; return 1; }
+    mv "$tmp" "$task/status.active" || return 1
+    sh "$task/softap_native_config.sh" "$task" status "$band" "$width" >/dev/null 2>&1 || return 1
+    timeout 5 dumpsys tethering --short 2>/dev/null |
+        grep -Eq '^[[:space:]]*mtap0 - TetheredState - lastError = 0$'
+}
+
+# A recorded recovery failure used to be replayed verbatim on every later
+# start/stop, so one transient error (the station check losing the
+# re-association race, or a checker that pinned an old module version) locked the
+# module until reboot. Retry the checked recovery itself: bounded per boot,
+# rate-limited, and each failed result is archived instead of overwritten.
+retry_checked_recovery() {
+    task=$1
+    [ -f "$task/recovery.rc" ] && [ ! -L "$task/recovery.rc" ] || return 1
+    limit=${MT6639_RECOVERY_RETRIES:-2}
+    cooldown=${MT6639_RECOVERY_COOLDOWN:-20}
+    n=$(cat "$task/recovery.retries" 2>/dev/null || printf 0)
+    case "$n" in ''|*[!0-9]*) n=0 ;; esac
+    [ "$n" -lt "$limit" ] || { log "REJECT recovery_retries_exhausted n=$n"; return 1; }
+    now=$(date +%s 2>/dev/null)
+    case "$now" in ''|*[!0-9]*) now=0 ;; esac
+    mtime=$(stat -c %Y "$task/recovery.rc" 2>/dev/null || printf 0)
+    case "$mtime" in ''|*[!0-9]*) mtime=0 ;; esac
+    if [ "$now" -gt 0 ] && [ "$mtime" -gt 0 ] &&
+        [ "$now" -ge "$mtime" ] && [ $((now - mtime)) -lt "$cooldown" ]; then
+        log "REJECT recovery_cooldown remaining=$((cooldown - (now - mtime)))s"
+        return 1
+    fi
+    n=$((n + 1))
+    printf '%s\n' "$n" > "$task/recovery.retries" || return 1
+    mv "$task/recovery.rc" "$task/recovery.failed.$n" 2>/dev/null || return 1
+    log "retry_checked_recovery attempt=$n/$limit"
+    timeout -s KILL 120 sh "$task/softap_native_once.sh" "$task" recover \
+        > "$task/control.recover.$n" 2>&1 || {
+        log 'REJECT recovery_command_failed_retry'
+        return 1
+    }
+    [ -s "$task/recovery.rc" ] || { log 'REJECT recovery_result_missing_retry'; return 1; }
+    [ "$(cat "$task/recovery.rc" 2>/dev/null)" = 0 ]
+}
+
+stop_session() {
+    if task=$(session_task); then
+        :
+    else
+        s=$?
+        [ "$s" = 1 ] && { clear_session || return 70; return 0; }
+        log 'REJECT session_task_invalid; authority retained'
+        return 73
+    fi
+    same_boot || { log 'REJECT session_cross_boot; authority retained'; return 78; }
+    publish_status stopping "$(cat "$BAND_FILE" 2>/dev/null || printf none)" \
+        "$(cat "$WIDTH_FILE" 2>/dev/null || printf none)" || true
+    if [ ! -e "$task/cleanup.request" ]; then
+        : > "$task/cleanup.request" || { log 'REJECT cleanup_request_failed'; return 74; }
+    fi
+    i=0
+    while [ "$i" -lt 90 ]; do
+        running=0
+        guarding=0
+        runner_alive && running=1
+        guardian_alive && guarding=1
+        [ "$running" = 1 ] || [ "$guarding" = 1 ] || break
+        sleep 1
+        i=$((i+1))
+    done
+    if runner_alive; then
+        log 'REJECT runner_still_alive_after_cleanup'
+        return 73
+    fi
+    if guardian_alive || guardian_process_without_record; then
+        log 'REJECT guardian_still_alive_after_cleanup'
+        return 73
+    fi
+    # A process that died before the first driver/interface/tether intent is
+    # restartable only when no effect marker and no mtap0 exist.
+    if [ ! -e "$task/driver.intent" ] && [ ! -e "$task/interface.intent" ] &&
+        [ ! -e "$task/tether.intent" ] && [ ! -e /sys/class/net/mtap0 ]; then
+        clear_session || return 70
+        echo 'state=idle restored=1 reason=no_effect_terminal'
+        return 0
+    fi
+    if [ ! -s "$task/recovery.rc" ]; then
+        log 'recovery_missing; invoking checked recover'
+        timeout -s KILL 120 sh "$task/softap_native_once.sh" "$task" recover \
+            > "$task/control.recover" 2>&1 || {
+            log 'REJECT recovery_command_failed'
+            return 73
+        }
+    fi
+    if [ ! -s "$task/recovery.rc" ]; then
+        log 'REJECT recovery_result_missing'
+        return 73
+    fi
+    if [ "$(cat "$task/recovery.rc" 2>/dev/null)" != 0 ]; then
+        retry_checked_recovery "$task" ||
+            { log "REJECT recovery_rc=$(cat "$task/recovery.rc" 2>/dev/null)"; return 73; }
+    fi
+    [ ! -e /sys/class/net/mtap0 ] || { log 'REJECT interface_still_present'; return 73; }
+    timeout 5 dumpsys tethering --short 2>/dev/null |
+        grep -Eq '^[[:space:]]*mtap0 - (TetheredState|LocalHotspotState)' && {
+            log 'REJECT tethering_still_active'; return 73; }
+    action_rc=$(cat "$task/action.rc" 2>/dev/null || printf '%s\n' missing)
+    clear_session || return 70
+    publish_status idle none none || true
+    echo "state=idle restored=1 action_rc=$action_rc"
+}
+
+discard_staged_task() {
+    task=$1
+    case "$task" in /data/local/tmp/mt6639-native-ap-*) ;; *) return 64 ;; esac
+    [ -d "$task" ] && [ ! -L "$task" ] &&
+        [ "$(stat -c %u "$task")" = 0 ] && [ "$(stat -c %a "$task")" = 700 ] || return 73
+    if [ -f "$TASK_FILE" ] && [ "$(cat "$TASK_FILE" 2>/dev/null)" = "$task" ]; then
+        return 75
+    fi
+    [ ! -e "$task/guardian.pid" ] && [ ! -e "$task/native.pid" ] || return 73
+    rm -f "$task/softap_native_once.sh" "$task/softap_native_config.sh" \
+        "$task/hostapd" "$task/hostapd_cli" "$task/delete_ifindex" \
+        "$task/native-tether.dex" "$task/softap-profile.dex" \
+        "$task/twt_recover.sh" "$task/ap.key" "$task/reconnect.key" \
+        "$task/reconnect-2g.key" "$task/ap.conf" "$task/.stage-error" || return 74
+    rmdir "$task" || return 76
+}
+
+stage_native_task() {
+    task=$1 upstream_key=$2
+    for f in softap_native_once.sh softap_native_config.sh hostapd hostapd_cli \
+        delete_ifindex native-tether.dex softap-profile.dex twt_recover.sh; do
+        cp "$MODDIR/bin/$f" "$task/$f" || {
+            printf 'stage_failed_%s\n' "$f" > "$task/.stage-error"
+            return 70
+        }
+    done
+    cp "$PRIVATE/ap.key" "$task/ap.key" &&
+        cp "$PRIVATE/$upstream_key" "$task/$upstream_key" || {
+            printf 'private_stage_failed\n' > "$task/.stage-error"
+            return 70
+        }
+    chmod 0700 "$task"/*.sh "$task/hostapd" "$task/hostapd_cli" "$task/delete_ifindex" &&
+        chmod 0600 "$task"/*.key "$task"/*.dex || {
+            printf 'stage_permission_failed\n' > "$task/.stage-error"
+            return 70
+        }
+    if ! sh "$task/softap_native_config.sh" "$task" render "$band" "$width" \
+        > "$task/ap.conf"; then
+        printf 'config_render_failed\n' > "$task/.stage-error"
+        return 69
+    fi
+    sh "$task/softap_native_config.sh" "$task" check "$band" "$width" >/dev/null 2>&1 || {
+        printf 'config_check_failed\n' > "$task/.stage-error"
+        return 69
+    }
+}
+
+abort_staged_start() {
+    task=$1 reason=$2 code=$3
+    log "REJECT staged_start_$reason"
+    # Only publication failures after this attempt's successful mkdir own it.
+    # In particular, a failed mkdir must preserve the pre-existing session.
+    if [ "${4:-0}" = 1 ] && { [ -e "$SESSION" ] || [ -L "$SESSION" ]; }; then
+        clear_session || log 'REJECT staged_session_cleanup_failed'
+    fi
+    if [ -d "$task" ]; then
+        discard_staged_task "$task" ||
+            log "REJECT staged_task_cleanup_failed reason=$reason"
+    fi
+    return "$code"
+}
+
+start_session() {
+    . "$MODDIR/config.conf"
+    band=${ARG_BAND:-${BAND:-6g}}
+    width=${ARG_WIDTH:-${WIDTH:-20}}
+    hold=${GUARDIAN_HOLD_SECONDS:-86400}
+    case "$band:$width" in
+        2g:20|5g:20|5g:40|5g:80|6g:20|6g:40|6g:80|6g:160|6g:320) ;;
+        *)
+        log 'REJECT unsupported_band_width'; return 64 ;; esac
+    case "$hold" in ''|*[!0-9]*) return 64 ;; esac
+    [ "$hold" -ge 30 ] && [ "$hold" -le 86400 ] || return 64
+    [ "$(getenforce)" = Enforcing ] || { log 'REJECT enforcing_required'; return 77; }
+    android_env_ready || { log 'REJECT android_env_unavailable'; return 69; }
+    if [ -e "$MODDIR/disable" ] || [ -e "$MODDIR/remove" ]; then
+        log 'REJECT module_disabled_or_removing'
+        return 73
+    fi
+    sha_ok || { log 'REJECT module_asset_hash_mismatch'; return 69; }
+    case "$band" in
+        2g) upstream_key=reconnect-2g.key ;;
+        5g) upstream_key=reconnect-2g.key ;;
+        6g) upstream_key=reconnect.key ;;
+        *) log 'REJECT unsupported_band'; return 64 ;;
+    esac
+    for f in ap.key "$upstream_key"; do
+        p=$PRIVATE/$f
+        [ -d "$PRIVATE" ] && [ ! -L "$PRIVATE" ] && [ -f "$p" ] && [ ! -L "$p" ] &&
+            [ "$(stat -c %u "$p")" = 0 ] && [ "$(stat -c %a "$p")" = 600 ] || {
+                log "REJECT private_file_invalid $f"; return 66; }
+    done
+    if [ -e "$TASK_FILE" ]; then
+        if active_checked; then log 'state=already_active'; return 0; fi
+        stop_session || return $?
+    fi
+    [ ! -e /sys/class/net/mtap0 ] || { log 'REJECT mtap0_exists'; return 73; }
+    timeout 5 dumpsys tethering --short 2>/dev/null |
+        grep -Fxq '    Upstream wanted: false' || {
+            log 'REJECT tethering_not_idle'; return 73; }
+    publish_status starting "$band" "$width" || true
+
+    b=$(boot_id) || return 70
+    task=$(mktemp -d "/data/local/tmp/mt6639-native-ap-${b%%-*}-${hold}-XXXXXX") || return 70
+    chmod 0700 "$task" || {
+        abort_staged_start "$task" task_chmod 70
+        return 70
+    }
+    stage_rc=0
+    stage_native_task "$task" "$upstream_key" || stage_rc=$?
+    if [ "$stage_rc" != 0 ]; then
+        reason=$(cat "$task/.stage-error" 2>/dev/null || printf 'staging_failed\n')
+        abort_staged_start "$task" "$reason" "$stage_rc"
+        return "$stage_rc"
+    fi
+    if ! mkdir "$SESSION"; then
+        abort_staged_start "$task" session_mkdir 73
+        return 73
+    fi
+    if ! printf '%s\n' "$task" > "$TASK_FILE" ||
+        ! printf '%s\n' "$b" > "$BOOT_FILE" ||
+        ! printf '%s\n' "$band" > "$BAND_FILE" ||
+        ! printf '%s\n' "$width" > "$WIDTH_FILE" ||
+        ! printf '%s\n' starting > "$STATE_FILE"; then
+        abort_staged_start "$task" session_publish 70 1
+        return 70
+    fi
+    MT6639_HOTSPOT_UPSTREAM=${MT6639_HOTSPOT_UPSTREAM:-wifi} \
+        MODULE_GUARD_DIR=$MODDIR GUARDIAN_HOLD_SECONDS=$hold nohup setsid sh \
+        "$task/softap_native_once.sh" "$task" run-tether "$band" "$width" \
+        > "$task/session.log" 2>&1 < /dev/null &
+    pid=$!
+    printf '%s\n' "$pid" > "$PID_FILE" || return 70
+    awk '{print $22}' "/proc/$pid/stat" > "$RUN_START_FILE" || return 70
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! runner_alive; then
+            if [ -f "$task/failure" ] && [ ! -L "$task/failure" ]; then
+                log "REJECT runner_exited_during_start reason=$(timeout 2 tr -d '\n' < "$task/failure")"
+            else
+                log 'REJECT runner_exited_during_start reason=unreported'
+            fi
+            # A runner that gave up after running its own checked teardown leaves
+            # a terminal recovery.rc=0; one that rejected a precondition never
+            # touched the driver at all. Both are terminal, so close the session
+            # here instead of leaving the module in 'starting' until somebody
+            # runs stop by hand.
+            start_no_effect=0
+            if [ ! -e "$task/driver.intent" ] && [ ! -e "$task/interface.intent" ] &&
+                [ ! -e "$task/tether.intent" ] && [ ! -e /sys/class/net/mtap0 ]; then
+                start_no_effect=1
+            fi
+            if [ "$start_no_effect" = 1 ] ||
+                { [ "$(cat "$task/recovery.rc" 2>/dev/null)" = 0 ] &&
+                  [ ! -e /sys/class/net/mtap0 ]; }; then
+                failed_action_rc=$(cat "$task/action.rc" 2>/dev/null || printf 'missing')
+                if clear_session; then
+                    log "state=idle restored=1 action_rc=$failed_action_rc"
+                else
+                    log 'REJECT session_clear_failed'
+                fi
+            fi
+            return 71
+        fi
+        if active_checked; then
+            printf '%s\n' active > "$STATE_FILE"
+            publish_status active "$band" "$width" || true
+            log "state=active task=$task pid=$pid band=$band width=$width hold=$hold"
+            return 0
+        fi
+        sleep 1
+        i=$((i+1))
+    done
+    log 'REJECT start_timeout; requesting checked cleanup'
+    publish_status unresolved "$band" "$width" || true
+    : > "$task/cleanup.request" 2>/dev/null || true
+    return 72
+}
+
+run_c02_24g() {
+    . "$MODDIR/config.conf"
+    android_env_ready || { log 'REJECT android_env_unavailable'; return 69; }
+    [ ! -e "$TASK_FILE" ] || { log 'REJECT native_session_exists'; return 73; }
+    [ ! -e /sys/class/net/mtap0 ] || { log 'REJECT mtap0_exists'; return 73; }
+    [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ] ||
+        { log 'REJECT module_disabled_or_removing'; return 73; }
+    sha_ok || { log 'REJECT module_asset_hash_mismatch'; return 69; }
+    publish_status starting 2g 20 || true
+    output=$(MT6639_C02_FORCE_AX=${MT6639_C02_FORCE_AX:-0} \
+        sh "$MODDIR/bin/softap_24g_once.sh" "$MODDIR")
+    rc=$?
+    [ -z "$output" ] || printf '%s\n' "$output"
+    if [ "$rc" = 0 ]; then
+        publish_status idle none none || true
+    else
+        publish_status unresolved 2g 20 || true
+    fi
+    return "$rc"
+}
+
+status() {
+    echo "boot=$(boot_id)"
+    module_state=$( [ -e "$MODDIR/disable" ] && echo disabled || echo enabled )
+    echo "module=$module_state"
+    if [ "$module_state" = disabled ]; then
+        publish_status disabled none none || true
+    fi
+    if task=$(session_task); then
+        if active_checked; then state=active; else state=unresolved; fi
+        display_band=$(cat "$BAND_FILE" 2>/dev/null || printf none)
+        display_width=$(cat "$WIDTH_FILE" 2>/dev/null || printf none)
+        [ "$module_state" = disabled ] || publish_status "$state" "$display_band" "$display_width" || true
+        echo "state=$state"
+        echo "task=$task"
+        echo "same_boot=$(same_boot && echo 1 || echo 0)"
+        echo "runner=$(runner_alive && echo alive || echo not_running)"
+        echo "guardian=$(guardian_alive && echo alive || echo not_running)"
+        echo "action_rc=$(cat "$task/action.rc" 2>/dev/null || echo pending)"
+        echo "recovery_rc=$(cat "$task/recovery.rc" 2>/dev/null || echo pending)"
+        [ -s "$task/status.active" ] && grep -E '^(state|freq|channel|ieee80211be|eht_oper_chwidth)=' "$task/status.active"
+    else
+        s=$?
+        [ "$s" = 1 ] || { echo session_task=invalid; return 73; }
+        state=$(cat "$STATE_FILE" 2>/dev/null || echo idle)
+        case "$state" in starting|active|stopping|unresolved) ;; *) state=idle ;; esac
+        [ "$module_state" = disabled ] || publish_status "$state" none none || true
+        echo "state=$state"
+        echo task=none
+    fi
+}
+
+action_lock() {
+    exec 7>"$WORK/action.lock" || return 70
+    flock -n 7 7>&7 || return 75
+}
+
+case "$OP" in
+    start|stop|recover|toggle|c02-24g)
+        if action_lock; then
+            :
+        else
+            lock_rc=$?
+            log 'REJECT action_busy'
+            exit "$lock_rc"
+        fi
+        ;;
+esac
+
+case "$OP" in
+    status)
+        status
+        rc=$?
+        ;;
+    start)
+        start_session
+        rc=$?
+        if [ "$rc" != 0 ]; then
+            # A fail-closed rejection creates nothing; publishing "unresolved"
+            # leaves Settings stuck on an unknown state. Echo the controller's
+            # own state, and reserve "unresolved" for a leftover session.
+            if session_task >/dev/null; then
+                publish_status unresolved "${ARG_BAND:-none}" "${ARG_WIDTH:-none}" || true
+            else
+                state_now=$(cat "$STATE_FILE" 2>/dev/null || printf idle)
+                case "$state_now" in
+                    starting|active|stopping|unresolved)
+                        publish_status unresolved "${ARG_BAND:-none}" "${ARG_WIDTH:-none}" || true ;;
+                    *)
+                        publish_status idle none none || true ;;
+                esac
+            fi
+        fi
+        ;;
+    c02-24g)
+        run_c02_24g
+        rc=$?
+        ;;
+    stop|recover)
+        stop_session
+        rc=$?
+        [ "$rc" = 0 ] || publish_status unresolved \
+            "$(cat "$BAND_FILE" 2>/dev/null || printf none)" \
+            "$(cat "$WIDTH_FILE" 2>/dev/null || printf none)" || true
+        ;;
+    toggle)
+        if active_checked; then stop_session; else start_session; fi
+        rc=$?
+        [ "$rc" = 0 ] || publish_status unresolved "${ARG_BAND:-none}" "${ARG_WIDTH:-none}" || true
+        ;;
+    *) echo 'usage: control.sh MODDIR status|start|stop|recover|toggle [5g|6g WIDTH]|c02-24g' >&2; exit 64 ;;
+esac
+exit "$rc"

@@ -1,0 +1,25 @@
+package de.robv.android.xposed;
+
+public abstract class XC_MethodHook {
+    protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+    }
+
+    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+    }
+
+    public static final class MethodHookParam {
+        public Object thisObject;
+        public Object[] args;
+        public boolean hasThrowable() { return false; }
+        public Throwable getThrowable() { return null; }
+        public Object getResult() { return null; }
+        public void setResult(Object result) {
+            throw new UnsupportedOperationException("compile-only stub");
+        }
+    }
+
+    public final class Unhook {
+        public void unhook() {
+        }
+    }
+}
