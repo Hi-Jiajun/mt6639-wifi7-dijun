@@ -1,4 +1,20 @@
-# MT6639 6GHz v0.2.13
+# MT6639 6GHz v0.3.0-dijun.1
+
+本 fork 增加 KernelSU 模块卡片状态：内核/驱动是否匹配、配置状态、事务状态、6GHz 已注册信道数、当前连接频率和采集时间。仅重做展示，旧版内核及原厂组件限制尚未放开；不是新版系统兼容完成的声明。
+
+卡片在启动、操作完成和既有看护的每分钟周期刷新。管理器可能缓存列表，需要重新打开或下拉刷新。没有 `iw` 或观察命令失败时显示“未知”，不会以缺少输出推断功能成功。显示“事务运行”不代表已连接，“已注册信道”不代表业务通过。完整说明及构建入口见 [维护记录](../../docs/研究-OS4新版兼容与模块状态卡-20261115.md)。
+
+只读观察命令（写卡片只更新模块自有展示文件）：
+
+```sh
+sh /data/adb/modules/mt6639-6g/bin/status-card.sh /data/adb/modules/mt6639-6g show
+sh /data/adb/modules/mt6639-6g/bin/status-card.sh /data/adb/modules/mt6639-6g update
+sh /data/adb/modules/mt6639-6g/bin/verify-module.sh /data/adb/modules/mt6639-6g
+```
+
+`module.prop.template` 是构建生成、受 SHA256SUMS 校验的静态模板；`module.prop` 允许仅 description 变化。完整校验用 `verify-module.sh`，它同时检查静态文件和除 description 外的模块元数据。不要把单独执行 `sha256sum -c` 当作展示文件元数据也通过了检查，不要运行时重写 SHA256SUMS。
+
+## 6GHz 事务与恢复机制
 
 用户选择默认启用。KernelSU 加载 service 后，在内核、原厂 cfg/ko 哈希和挂载状态检查通过时启动持续 6GHz 事务。`RUN_MODE=persistent` 为默认；需要旧版 15 分钟实验窗口时可显式设置 `RUN_MODE=bounded`。启动和恢复命令仍有截止时间，只有稳定保持阶段不再自动到期，不会周期性重置 Wi-Fi。
 

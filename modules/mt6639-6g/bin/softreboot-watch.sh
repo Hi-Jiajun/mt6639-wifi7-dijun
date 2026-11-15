@@ -230,6 +230,7 @@ run_loop() {
         if [ "$CHECK_INTERVAL" -gt 0 ] && [ "$now" -ge $((last_check + CHECK_INTERVAL)) ] 2>/dev/null; then
             last_check=$now
             integrity_check
+            sh "$MODDIR/bin/status-card.sh" "$MODDIR" update 8>&- >/dev/null 2>&1 || :
         fi
         if [ "$ITERATIONS" != 0 ] && [ "$i" -ge "$ITERATIONS" ]; then
             break

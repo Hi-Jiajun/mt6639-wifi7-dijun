@@ -43,4 +43,6 @@ case "$operation" in
 esac
 rc=$?
 [ "$rc" = 0 ] || log "control: operation=$operation failed rc=$rc; recovery authority retained"
+# A failed observation must never replace the operation's actual exit code.
+sh "$MODDIR/bin/status-card.sh" "$MODDIR" update "$operation" "$rc" 9>&- >/dev/null 2>&1 || :
 exit "$rc"

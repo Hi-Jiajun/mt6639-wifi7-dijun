@@ -36,7 +36,7 @@ if [ -f "$MODDIR/module.prop" ]; then
     # tree against its own SHA256SUMS instead — it is stronger and version-agnostic.
     [ -f "$MODDIR/SHA256SUMS" ] || bad "module_sums_missing"
     if [ -f "$MODDIR/SHA256SUMS" ]; then
-        ( cd "$MODDIR" && sha256sum -c SHA256SUMS >/dev/null 2>&1 ) ||
+        sh "$MODDIR/bin/verify-module.sh" "$MODDIR" ||
             bad "module_sums_mismatch"
     fi
 else

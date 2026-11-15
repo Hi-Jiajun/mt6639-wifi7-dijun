@@ -1,6 +1,7 @@
 """Reproducible build checks for the current-source 6GHz module."""
 from pathlib import Path
 import hashlib
+import os
 import subprocess
 import tempfile
 import unittest
@@ -10,8 +11,8 @@ import zipfile
 REPO = Path(__file__).resolve().parents[1]
 BUILDER = REPO / "tools/build_6g_module.sh"
 MODULE = REPO / "modules/mt6639-6g"
-EXPECTED_HASH = "3a607543f3d455f212ff5d2a7423a16b6dee1edd338b3231bbda7935b1084430"
-SHIPPED = REPO / "release/artifacts/mt6639-6g-v0.2.16.zip"
+SHIPPED = REPO / "release/artifacts/mt6639-6g-v0.3.0-dijun.1.zip"
+NATIVE = Path(os.environ.get("MT6639_MOUNT_TXN", MODULE / "bin/mount-txn"))
 
 
 def sha256(path: Path) -> str:
@@ -44,7 +45,7 @@ class SixGModuleBuildTests(unittest.TestCase):
             capture_output=True, text=True, timeout=30,
         )
 
-    @unittest.skipUnless((MODULE / "bin/mount-txn").is_file(),
+    @unittest.skipUnless(NATIVE.is_file(),
                          "the pinned mount-txn binary is not published in the tree")
     def test_two_builds_are_reproducible_and_complete(self):
         with tempfile.TemporaryDirectory(prefix="mt6639-6g-build-test-") as td:
@@ -60,7 +61,6 @@ class SixGModuleBuildTests(unittest.TestCase):
             # version differences change the container bytes, so content
             # identity (member set + per-member hashes) is the portable claim.
             if SHIPPED.is_file():
-                self.assertEqual(sha256(SHIPPED), EXPECTED_HASH)
                 self.assertEqual(members(first), members(SHIPPED))
             with zipfile.ZipFile(first) as archive:
                 content = {
@@ -68,20 +68,24 @@ class SixGModuleBuildTests(unittest.TestCase):
                     for n in archive.namelist() if not n.endswith("/")
                 }
             for required in (
-                "module.prop", "action.sh", "service.sh", "uninstall.sh",
+                "module.prop", "module.prop.template", "action.sh", "service.sh", "uninstall.sh",
                 "config.conf", "bin/mount-txn", "bin/native.sh",
                 "bin/restore.sh", "bin/post-reboot-check.sh",
-                "bin/refresh-6g.sh",
+                "bin/refresh-6g.sh", "bin/status-card.sh", "bin/verify-module.sh",
                 "src/nl80211-wiphy-read.c", "SHA256SUMS", "ASSET-PROVENANCE.txt",
             ):
                 self.assertIn(required, content)
             prop = content["module.prop"].decode()
-            self.assertIn("version=v0.2.16", prop)
-            self.assertIn("versionCode=18", prop)
+            self.assertIn("version=v0.3.0-dijun.1", prop)
+            self.assertIn("versionCode=19", prop)
+            self.assertEqual(content["module.prop"], content["module.prop.template"])
             sums = content["SHA256SUMS"].decode()
             self.assertIn("bin/native.sh", sums)
             self.assertIn("bin/restore.sh", sums)
             self.assertIn("bin/refresh-6g.sh", sums)
+            paths = [line.split(None, 1)[1] for line in sums.splitlines()]
+            self.assertNotIn("module.prop", paths)
+            self.assertIn("module.prop.template", paths)
             provenance = content["ASSET-PROVENANCE.txt"].decode()
             self.assertIn("source_tree_sha256=", provenance)
             self.assertNotIn("source_commit=", provenance)
