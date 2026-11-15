@@ -111,6 +111,13 @@ esac
         self.ko.write_bytes(b"new driver")
         self.assertEqual(self.card("update").returncode, 0)
         self.assertIn("[驱动不匹配]", self.description())
+        self.assertIn("驱动：哈希不匹配", self.description())
+
+    def test_unreadable_driver_is_distinguished_from_hash_mismatch(self):
+        self.ko.unlink()
+        self.assertEqual(self.card("update").returncode, 0)
+        self.assertIn("[驱动不可读]", self.description())
+        self.assertIn("驱动：不可读", self.description())
 
     def test_failed_iw_is_unknown_not_zero_or_success(self):
         self.assertEqual(self.card("update", CARD_IW_FAIL="1").returncode, 0)
@@ -175,7 +182,7 @@ esac
         self.assertEqual(self.card("update").returncode, 0)
         self.assertEqual(self.verify(), 0)
         self.assertEqual(before, (self.mod / "SHA256SUMS").read_bytes())
-        text = (self.mod / "module.prop").read_text().replace("versionCode=20", "versionCode=999")
+        text = (self.mod / "module.prop").read_text().replace("versionCode=21", "versionCode=999")
         (self.mod / "module.prop").write_text(text)
         self.assertNotEqual(self.verify(), 0)
 

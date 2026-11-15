@@ -65,6 +65,32 @@ esac
             self.assertEqual(result.returncode, 3)
             self.assertIn("REJECT ko_not_stock", result.stdout)
 
+    def test_reviewed_variant_selects_exact_hash_for_all_later_checks(self):
+        row = ROWS[1]
+        result = self.identity(row, ko=row[4], action=
+                               'require_identity && echo "selected=$STOCK_KO_SHA"')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("selected=" + row[4], result.stdout)
+        # The variant is kernel-bound, not a global list of accepted binaries.
+        self.assertEqual(self.identity(ROWS[0], ko=row[4]).returncode, 3)
+
+    def test_malformed_and_duplicate_variant_hashes_reject_table(self):
+        table = self.mod / "compatibility.conf"
+        original = table.read_text()
+        for value in ("unknown", ROWS[1][3]):
+            table.write_text(original.replace(ROWS[1][4], value))
+            result = self.identity(ROWS[1])
+            self.assertEqual(result.returncode, 3)
+            self.assertIn("compatibility_table_invalid", result.stdout)
+
+    def test_optional_device_sample_matches_reviewed_variant(self):
+        driver = os.environ.get("MT6639_DEVICE_DRIVER")
+        cfg = os.environ.get("MT6639_DEVICE_CFG")
+        if not driver or not cfg:
+            self.skipTest("provide private user driver/config samples")
+        self.assertEqual(hashlib.sha256(Path(driver).read_bytes()).hexdigest(), ROWS[1][4])
+        self.assertEqual(hashlib.sha256(Path(cfg).read_bytes()).hexdigest(), ROWS[1][2])
+
     def test_unknown_or_suffix_changed_kernel_is_rejected(self):
         for kernel in ("6.18.21-android17-unknown", ROWS[1][1] + "-custom"):
             result = self.identity(ROWS[1], kernel=kernel)
@@ -143,7 +169,11 @@ esac
         # Reuse the existing lifecycle double, keeping the real entrypoints.
         # Production paths are redirected only at sha256sum/cp I/O boundaries.
         from test_mt6639_control import ControlTests
-        for row, sample in zip(ROWS, ("os4-current", "os4-stable")):
+        variants = [(row, sample) for row, sample in zip(ROWS, ("os4-current", "os4-stable"))]
+        variant = ROWS[1][:4]
+        variant[3] = ROWS[1][4]
+        variants.append((variant, "device"))
+        for row, sample in variants:
             with self.subTest(profile=row[0]):
                 fixture = ControlTests(methodName="runTest")
                 fixture.setUp()
@@ -152,7 +182,10 @@ esac
                 env.pop("MT6639_TEST_MODE")
                 cfg, ko = Path(env["CFG"]), Path(env["STOCK_KO"])
                 samples = os.environ.get("MT6639_STOCK_SAMPLES")
-                if samples:
+                if sample == "device" and os.environ.get("MT6639_DEVICE_DRIVER"):
+                    shutil.copyfile(os.environ["MT6639_DEVICE_CFG"], cfg)
+                    shutil.copyfile(os.environ["MT6639_DEVICE_DRIVER"], ko)
+                elif samples and sample != "device":
                     base = Path(samples) / sample / "analysis"
                     shutil.copyfile(base / "odm/firmware/wifi.cfg", cfg)
                     shutil.copyfile(base / "vendor_dlkm/lib/modules/wlan_drv_gen4m_eap_6639.ko", ko)
@@ -196,6 +229,9 @@ esac
                 self.assertIn(f"compatibility profile={row[0]}", result.stdout)
                 self.assertEqual((fixture.work / "state").read_text().strip(), "active")
                 self.assertTrue((fixture.work / "active_tx").read_text().strip())
+                backups = list(fixture.work.glob("backup-*/wlan.ko.stock"))
+                self.assertEqual(len(backups), 1)
+                self.assertEqual(backups[0].read_bytes(), ko.read_bytes())
                 result = fixture.run_entry("bin/control.sh", str(fixture.mod), "disable")
                 self.assertEqual(result.returncode, 0, result.stdout)
                 self.assertEqual((fixture.work / "state").read_text().strip(), "restored")
@@ -236,12 +272,13 @@ esac
         # Fixture wrapper must itself be bound before checking the tree.
         with (self.mod / "SHA256SUMS").open("a") as f:
             f.write(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  bin/post-reboot-check-fixture.sh\n")
-        result = subprocess.run(["sh", str(p), "restored"],
-                                env=dict(env, FIXTURE_MODDIR=str(self.mod)),
-                                capture_output=True, text=True, timeout=10)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("compatibility_profile=os4-stable", result.stdout)
-        self.assertIn("RESULT fail=0", result.stdout)
+        for ko_sha in (row[3], row[4]):
+            result = subprocess.run(["sh", str(p), "restored"],
+                                    env=dict(env, FIXTURE_MODDIR=str(self.mod), FIXTURE_KO=ko_sha),
+                                    capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("compatibility_profile=os4-stable", result.stdout)
+            self.assertIn("RESULT fail=0", result.stdout)
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ import zipfile
 REPO = Path(__file__).resolve().parents[1]
 BUILDER = REPO / "tools/build_6g_module.sh"
 MODULE = REPO / "modules/mt6639-6g"
-SHIPPED = REPO / "release/artifacts/mt6639-6g-v0.3.1-dijun.1.zip"
+SHIPPED = REPO / "release/artifacts/mt6639-6g-v0.3.2-dijun.1.zip"
 NATIVE = Path(os.environ.get("MT6639_MOUNT_TXN", MODULE / "bin/mount-txn"))
 
 
@@ -76,8 +76,8 @@ class SixGModuleBuildTests(unittest.TestCase):
             ):
                 self.assertIn(required, content)
             prop = content["module.prop"].decode()
-            self.assertIn("version=v0.3.1-dijun.1", prop)
-            self.assertIn("versionCode=20", prop)
+            self.assertIn("version=v0.3.2-dijun.1", prop)
+            self.assertIn("versionCode=21", prop)
             self.assertEqual(content["module.prop"], content["module.prop.template"])
             sums = content["SHA256SUMS"].decode()
             self.assertIn("bin/native.sh", sums)

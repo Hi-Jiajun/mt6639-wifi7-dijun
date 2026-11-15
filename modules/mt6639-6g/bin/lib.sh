@@ -25,7 +25,6 @@ else
         STOCK_KO=/vendor_dlkm/lib/modules/wlan_drv_gen4m_eap_6639.ko
     fi
     . "$MODDIR/bin/compat.sh"
-    select_runtime_profile "$(uname -r)" "$MODDIR/compatibility.conf" || :
 fi
 BOOT_ID_FILE=${BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}
 MOUNTINFO_FILE=${MOUNTINFO_FILE:-/proc/self/mountinfo}
@@ -52,6 +51,10 @@ log() {
 }
 
 file_sha() { sha256sum "$1" 2>/dev/null | cut -d ' ' -f 1; }
+
+if [ "${MT6639_TEST_MODE:-0}" != 1 ]; then
+    select_runtime_profile "$(uname -r)" "$MODDIR/compatibility.conf" "$(file_sha "$STOCK_KO")" || :
+fi
 
 # root 在 u:r:ksu:s0 域里直接调 cmd wifi / settings 会 can't find service，
 # 必须切回 shell 域执行 Binder 调用。

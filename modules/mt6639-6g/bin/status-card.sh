@@ -30,7 +30,12 @@ flock -n 7 7>&7 || exit 0
 kernel=匹配
 [ "$(uname -r)" = "$KERNEL_GUARD" ] || kernel=不匹配
 driver=匹配
-[ "$(file_sha "$STOCK_KO")" = "$STOCK_KO_SHA" ] || driver=不匹配或不可读
+driver_sha=$(file_sha "$STOCK_KO")
+if [ -z "$driver_sha" ]; then
+    driver=不可读
+elif [ "$driver_sha" != "$STOCK_KO_SHA" ]; then
+    driver=哈希不匹配
+fi
 cfg=原厂
 [ "$(file_sha "$CFG")" = "$STOCK_CFG_SHA" ] || cfg=变更或不可读
 transaction=空闲
@@ -81,6 +86,7 @@ if [ -f "$WORK/card-event" ] && [ ! -L "$WORK/card-event" ] &&
     esac
 fi
 [ "$driver" = 匹配 ] || headline=驱动不匹配
+[ "$driver" != 不可读 ] || headline=驱动不可读
 [ "$kernel" = 匹配 ] || headline=内核不匹配
 [ "$COMPAT_ERROR" != compatibility_table_invalid ] || headline=兼容表无效
 if [ -e "$MODDIR/disable" ]; then headline=模块已禁用; fi
