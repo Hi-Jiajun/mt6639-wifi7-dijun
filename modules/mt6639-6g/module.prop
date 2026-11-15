@@ -1,6 +1,6 @@
 id=mt6639-6g
 name=MT6639 · 6GHz 状态面板
-version=v0.3.0-dijun.1
-versionCode=19
+version=v0.3.1-dijun.1
+versionCode=20
 author=mt6639-dijun
-description=[等待状态采集] 内核：待检查 | 事务：未知 | 6GHz：未知 | 连接：未知。候选模块；信道注册不代表关联或业务通过。
+description=[等待状态采集] 已加入 OS4 g284297031c53 与原版 g1d099fcb35e0 组件适配 | 事务：未知 | 6GHz：未知 | 连接：未知。候选模块；实际无线行为待设备确认。

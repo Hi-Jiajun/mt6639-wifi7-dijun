@@ -82,6 +82,7 @@ if [ -f "$WORK/card-event" ] && [ ! -L "$WORK/card-event" ] &&
 fi
 [ "$driver" = 匹配 ] || headline=驱动不匹配
 [ "$kernel" = 匹配 ] || headline=内核不匹配
+[ "$COMPAT_ERROR" != compatibility_table_invalid ] || headline=兼容表无效
 if [ -e "$MODDIR/disable" ]; then headline=模块已禁用; fi
 if [ -e "$MODDIR/remove" ]; then headline=模块待移除; fi
 
@@ -127,7 +128,7 @@ if command -v iw >/dev/null 2>&1; then
     fi
 fi
 stamp=$(date '+%H:%M:%S')
-description="[$headline] 内核：$kernel | 驱动：$driver | 配置：$cfg | 事务：$transaction | 6GHz：$six | 连接：$link | 更新：$stamp。信道注册不代表业务通过。"
+description="[$headline] 适配：$COMPAT_PROFILE | 内核：$kernel | 驱动：$driver | 配置：$cfg | 事务：$transaction | 6GHz：$six | 连接：$link | 更新：$stamp。信道注册不代表业务通过。"
 if [ "$MODE" = show ]; then
     printf '%s\n' "$description"
     exit 0

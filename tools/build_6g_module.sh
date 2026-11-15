@@ -30,8 +30,9 @@ chmod 0755 "$TMP/module/action.sh" "$TMP/module/service.sh" \
     "$TMP/module/bin/native.sh" "$TMP/module/bin/post-reboot-check.sh" \
     "$TMP/module/bin/refresh-6g.sh" "$TMP/module/bin/restore.sh" \
     "$TMP/module/bin/softreboot-watch.sh" "$TMP/module/bin/status-card.sh" \
-    "$TMP/module/bin/verify-module.sh"
+    "$TMP/module/bin/verify-module.sh" "$TMP/module/bin/compat.sh"
 chmod 0644 "$TMP/module/module.prop" "$TMP/module/module.prop.template" "$TMP/module/config.conf" \
+    "$TMP/module/compatibility.conf" \
     "$TMP/module/README.md" "$TMP/module/src/nl80211-wiphy-read.c"
 
 if find "$TMP/module" -type l | grep -q .; then

@@ -7,6 +7,9 @@ MODDIR=${1:-${MODDIR:-/data/adb/modules/mt6639-6g}}
 
 echo "boot=$(boot_id)"
 echo "kernel=$(uname -r)"
+echo "compatibility_profile=$COMPAT_PROFILE"
+echo "compatibility_error=${COMPAT_ERROR:-none}"
+echo "ko_path=$STOCK_KO"
 echo "uid=$(id -u)"
 echo "enforce=$(cat /sys/fs/selinux/enforce 2>/dev/null)"
 echo "cfg_sha=$(file_sha "$CFG")"

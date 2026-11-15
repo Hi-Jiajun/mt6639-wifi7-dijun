@@ -9,6 +9,8 @@ STATE=${STATE:-$WORK/state}
 
 # 路径与哈希在测试模式下才允许覆盖，生产路径写死，避免配置错误指向别的文件。
 if [ "${MT6639_TEST_MODE:-0}" = 1 ]; then
+    COMPAT_PROFILE=fixture
+    COMPAT_ERROR=
     CFG=${CFG:?test mode requires CFG}
     STOCK_CFG_SHA=${STOCK_CFG_SHA:?test mode requires STOCK_CFG_SHA}
     STOCK_KO=${STOCK_KO:?test mode requires STOCK_KO}
@@ -16,10 +18,14 @@ if [ "${MT6639_TEST_MODE:-0}" = 1 ]; then
     KERNEL_GUARD=${KERNEL_GUARD:-$(uname -r)}
 else
     CFG=/odm/firmware/wifi.cfg
-    STOCK_CFG_SHA=e4dcd846f31077864932b499d462cfd6a8ca1befc6386f502813e0ba053cc154
     STOCK_KO=/vendor/lib/modules/wlan_drv_gen4m_eap_6639.ko
-    STOCK_KO_SHA=54619c2e9521fc084edd4ec93282715ac10e716ad4ae0a27ec5588fb64e618ea
-    KERNEL_GUARD=6.18.21-android17-5-g1d099fcb35e0-abogki538445360-4k
+    # Modern vendor_dlkm mount layouts need not expose the old vendor alias.
+    # Never hide a differing existing vendor file by silently trying another.
+    if [ ! -e "$STOCK_KO" ] && [ ! -L "$STOCK_KO" ]; then
+        STOCK_KO=/vendor_dlkm/lib/modules/wlan_drv_gen4m_eap_6639.ko
+    fi
+    . "$MODDIR/bin/compat.sh"
+    select_runtime_profile "$(uname -r)" "$MODDIR/compatibility.conf" || :
 fi
 BOOT_ID_FILE=${BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}
 MOUNTINFO_FILE=${MOUNTINFO_FILE:-/proc/self/mountinfo}
@@ -85,6 +91,8 @@ restore_wifi_cycle() {
 # 四项版本锁：boot 只在 apply 时绑定，不跨 boot 复用。
 require_identity() {
     [ "$(id -u)" = 0 ] || { log "REJECT not_root"; return 3; }
+    [ -z "$COMPAT_ERROR" ] || {
+        log "REJECT $COMPAT_ERROR $(uname -r)"; return 3; }
     [ "$(uname -r)" = "$KERNEL_GUARD" ] || {
         log "REJECT kernel_mismatch $(uname -r)"; return 3; }
     [ "$(file_sha "$CFG")" = "$STOCK_CFG_SHA" ] || {
