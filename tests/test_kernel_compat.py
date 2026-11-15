@@ -12,6 +12,19 @@ MODULE = Path(__file__).resolve().parents[1] / "modules/mt6639-6g"
 ROWS = [line.split() for line in (MODULE / "compatibility.conf").read_text().splitlines()
         if line and not line.startswith("#")]
 
+# These fixtures already model root via id. Model only the host WORK owner
+# at the stat boundary too, so public non-root CI keeps exercising production
+# mode and its real chmod/mode verification. Native ancestor tests use real IDs.
+PRODUCTION_WORK_STAT = '''#!/bin/sh
+if [ "$#" = 3 ] && [ "$1" = -c ] && [ "$3" = "$WORK" ]; then
+    case "$2" in
+        %u) echo 0; exit 0 ;;
+        %u:%a) mode=$(/usr/bin/stat -c %a "$3") || exit 1; echo "0:$mode"; exit 0 ;;
+    esac
+fi
+exec /usr/bin/stat "$@"
+'''
+
 
 class KernelCompatibilityTests(unittest.TestCase):
     def setUp(self):
@@ -36,6 +49,7 @@ case "$1" in
 esac
 ''',
             "getenforce": '#!/bin/sh\necho Enforcing\n',
+            "stat": PRODUCTION_WORK_STAT,
         }
         for name, body in scripts.items():
             path = self.stub / name
@@ -198,6 +212,7 @@ esac
                     table.write_text(text)
                 stub = fixture.root / "stub"
                 helpers = {
+                    "stat": PRODUCTION_WORK_STAT,
                     "uname": f'#!/bin/sh\necho "{row[1]}"\n',
                     "sha256sum": '''#!/bin/sh
 case "$1" in

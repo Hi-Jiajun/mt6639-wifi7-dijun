@@ -41,7 +41,29 @@ else
     NATIVE=$MODDIR/bin/mount-txn
 fi
 
-mkdir -p "$WORK" 2>/dev/null
+# This runs before log/lock/state creation in every entrypoint. A permissive
+# inherited umask or an older installation must not leave a writable ancestor
+# that the native directory() walk will reject before creating its journal.
+prepare_work_directory() {
+    [ ! -L "$WORK" ] || return 1
+    (umask 077; mkdir -p -m 0700 "$WORK") 2>/dev/null || return 1
+    [ -d "$WORK" ] && [ ! -L "$WORK" ] || return 1
+    work_owner=$(stat -c %u "$WORK" 2>/dev/null) || return 1
+    if [ "${MT6639_TEST_MODE:-0}" = 1 ]; then
+        # Host fixtures may run without root; still require their own owner.
+        expected_owner=$(stat -c %u "$MODDIR" 2>/dev/null) || return 1
+    else
+        expected_owner=0
+    fi
+    [ "$work_owner" = "$expected_owner" ] || return 1
+    chmod 0700 "$WORK" 2>/dev/null || return 1
+    [ ! -L "$WORK" ] &&
+        [ "$(stat -c '%u:%a' "$WORK" 2>/dev/null)" = "$expected_owner:700" ]
+}
+prepare_work_directory || {
+    echo 'REJECT work_directory_not_private' >&2
+    exit 3
+}
 
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
 
