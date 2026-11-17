@@ -57,8 +57,8 @@ class DualStaGateModuleTests(unittest.TestCase):
         self.assertLess(runner.index(': > "$D/mode.intent"'),
                         runner.index('sh "$GATE" "$D" arm 60'))
 
-    @unittest.skipUnless(APK.is_file() and pubenv.AAPT2,
-                         "built module APK or aapt2 unavailable")
+    @unittest.skipUnless(APK.is_file() and pubenv.AAPT2 and pubenv.DROIDASC,
+                         "built module APK, aapt2 or droidasc unavailable")
     def test_apk_structure_and_hash(self):
         self.assertTrue(APK.is_file())
         manifest = subprocess.run(

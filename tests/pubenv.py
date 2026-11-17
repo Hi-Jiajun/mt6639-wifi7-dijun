@@ -1,8 +1,9 @@
-"""Availability gates for the public mirror.
+"""Availability gates for environment- and asset-dependent offline tests.
 
-Release binaries live in GitHub Releases instead of the tree, and the Android
-toolchain is only needed by a few APK checks.  These helpers let the affected
-cases skip with an explicit reason instead of failing.
+Release binaries, local evidence fixtures, and Android SDK build-tools
+(`aapt2`, `javac`, `droidasc`, `android.jar`) may not be present in every
+checkout or host environment. These helpers let affected tests skip with an
+explicit reason instead of failing on missing prerequisites.
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ MATRIX = RELEASE / "f01-f10-matrix-20261026.json"
 
 AAPT2 = shutil.which("aapt2")
 JAVAC = shutil.which("javac")
+DROIDASC = shutil.which("droidasc")
 
 
 def _android_jar() -> Path | None:
@@ -27,8 +29,9 @@ def _android_jar() -> Path | None:
         return Path(env)
     home = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
     if home:
-        for path in sorted((Path(home) / "platforms").glob("android-*/android.jar")):
-            return path
+        for path in sorted((Path(home) / "platforms").glob("android-*/android.jar"), reverse=True):
+            if path.is_file():
+                return path
     return None
 
 
@@ -56,7 +59,7 @@ def all_release_assets() -> bool:
 
 
 def candidate_ready() -> bool:
-    return CANDIDATE.is_file() and assets_present("mt6639-6g-v0.2.16.zip")
+    return CANDIDATE.is_file() and all_release_assets()
 
 
 SKIP_RELEASE_ASSETS = "release binaries are not in the tree; download them from Releases"

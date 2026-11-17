@@ -56,7 +56,7 @@ elif name=='getenforce': print('Permissive' if changed and os.environ.get('PERMI
 elif name=='cat':
  if args==['/sys/fs/selinux/enforce']: print(os.environ.get('ENFORCE','1'))
  elif args and args[0].endswith('module.prop'):
-  print('id=mt6639-6g\nversion='+('v0.2.16\nversionCode=18' if 'modules_update' in args[0] else 'v0.2.6\nversionCode=8'))
+  print('id=mt6639-6g\nversion='+('v0.3.0\nversionCode=22' if 'modules_update' in args[0] else 'v0.2.6\nversionCode=8'))
  elif not args:
   data=sys.stdin.buffer.read(); sys.stdout.buffer.write(b'corrupted' if os.environ.get('CORRUPT_UPLOAD') else data)
  else: fail()

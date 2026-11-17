@@ -3,10 +3,17 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OUT="$ROOT/outputs/test-mt6639-ui-views"
 AJ=${ANDROID_JAR:-}
-[ -n "$AJ" ] || {
-    echo "ANDROID_JAR must point at platforms/android-*/android.jar" >&2; exit 64; }
+if [ -z "$AJ" ]; then
+    sdk_root=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}
+    if [ -n "$sdk_root" ] && [ -d "$sdk_root/platforms" ]; then
+        AJ=$(ls -1 "$sdk_root"/platforms/android-*/android.jar 2>/dev/null | sort -V | tail -1 || true)
+    fi
+fi
+[ -n "$AJ" ] && [ -f "$AJ" ] || {
+    echo "ANDROID_JAR must point at platforms/android-*/android.jar (or set ANDROID_HOME)" >&2
+    exit 64
+}
 # Put aapt2/zipalign/apksigner/adb on PATH yourself.
-export PATH
 mkdir -p "$OUT/classes"
 javac -encoding UTF-8 -source 8 -target 8 -nowarn -cp "$AJ" -d "$OUT/classes" \
     "$ROOT/modules/mt6639-ui-lsposed/src/com/hiliang/mt6639ui/RowState.java" \

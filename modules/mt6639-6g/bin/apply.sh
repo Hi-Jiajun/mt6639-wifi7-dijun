@@ -2,6 +2,7 @@
 # 启用 6GHz 实验。生产原生入口默认持续，可显式 bounded 或提前 restore。
 # 任何一步失败都走 restore 路径，并把结果如实写进日志。
 set -u
+umask 077
 MODDIR=${1:-${MODDIR:-/data/adb/modules/mt6639-6g}}
 . "$MODDIR/bin/lib.sh"
 [ -f "$MODDIR/config.conf" ] && . "$MODDIR/config.conf"

@@ -30,8 +30,23 @@ STATE_FILE=$WORK/state
 LOG=$WORK/control.log
 rc=0
 
-[ -d "$WORK" ] || mkdir -p "$WORK"
-chmod 0700 "$WORK"
+prepare_work_directory() {
+    work_parent=${WORK%/*}
+    [ -d "$work_parent" ] && [ ! -L "$work_parent" ] &&
+        [ "$(stat -c %u "$work_parent" 2>/dev/null)" = 0 ] || exit 77
+    [ ! -L "$WORK" ] || exit 77
+    if [ -e "$WORK" ]; then
+        [ -d "$WORK" ] || exit 77
+    else
+        (umask 077; mkdir -m 0700 "$WORK") 2>/dev/null || exit 70
+    fi
+    [ -d "$WORK" ] && [ ! -L "$WORK" ] &&
+        [ "$(stat -c %u "$WORK" 2>/dev/null)" = 0 ] || exit 77
+    chmod 0700 "$WORK" 2>/dev/null || exit 70
+    [ ! -L "$WORK" ] &&
+        [ "$(stat -c '%u:%a' "$WORK" 2>/dev/null)" = "0:700" ] || exit 77
+}
+prepare_work_directory
 log() {
     printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG" 2>/dev/null
     printf '%s\n' "$*"

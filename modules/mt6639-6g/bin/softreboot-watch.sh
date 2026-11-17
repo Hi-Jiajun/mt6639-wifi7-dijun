@@ -18,6 +18,7 @@
 # a transaction, never turns Wi-Fi on, and stops after a fixed number of attempts
 # per kernel boot (a success resets the budget).
 set -u
+umask 077
 MODDIR=${1:-${MODDIR:-/data/adb/modules/mt6639-6g}}
 MODE=${2:-run}
 . "$MODDIR/bin/lib.sh"

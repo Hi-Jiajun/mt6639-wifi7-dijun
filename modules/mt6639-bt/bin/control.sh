@@ -15,8 +15,16 @@ BOOT=$(cat /proc/sys/kernel/random/boot_id) || exit 70
 case "$BOOT" in ''|*[!a-f0-9-]*) reject invalid_boot_id ;; esac
 BASE=/data/adb/mt6639-bt
 [ ! -L "$BASE" ] || reject state_root_symlink
-mkdir -p "$BASE" || exit 70
-chmod 700 "$BASE" || exit 70
+[ ! -e "$BASE" ] || [ -d "$BASE" ] || reject state_root_not_dir
+(umask 077; mkdir -p -m 0700 "$BASE") || exit 70
+[ -d "$BASE" ] && [ ! -L "$BASE" ] || reject state_root_not_dir
+case "$BASE" in
+    /data/adb/*) expected_uid=0 ;;
+    *) expected_uid=$(stat -c %u "$MODDIR" 2>/dev/null) || exit 70 ;;
+esac
+[ "$(stat -c %u "$BASE" 2>/dev/null)" = "$expected_uid" ] || reject state_root_foreign_owner
+chmod 0700 "$BASE" || exit 70
+[ ! -L "$BASE" ] && [ "$(stat -c '%u:%a' "$BASE" 2>/dev/null)" = "$expected_uid:700" ] || reject state_root_mode
 exec 9>"$BASE/control.lock" || exit 70
 flock -n 9 9>&9 || reject busy
 STATE=$BASE/$BOOT

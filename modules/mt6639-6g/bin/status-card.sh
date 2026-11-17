@@ -145,8 +145,8 @@ fi
 tmp=$(mktemp "$MODDIR/.module.prop.XXXXXX") || exit 3
 trap 'rm -f "$tmp"' EXIT
 trap 'exit 143' HUP INT TERM
-awk -v description="$description" '
-    /^description=/ { print "description=" description; next } { print }
+DESC=$description awk '
+    /^description=/ { print "description=" ENVIRON["DESC"]; next } { print }
 ' "$TEMPLATE" >"$tmp" || exit 3
 chmod 0644 "$tmp" || exit 3
 mv -f "$tmp" "$MODDIR/module.prop" || exit 3

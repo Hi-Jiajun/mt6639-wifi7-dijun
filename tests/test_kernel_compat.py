@@ -16,10 +16,14 @@ ROWS = [line.split() for line in (MODULE / "compatibility.conf").read_text().spl
 # at the stat boundary too, so public non-root CI keeps exercising production
 # mode and its real chmod/mode verification. Native ancestor tests use real IDs.
 PRODUCTION_WORK_STAT = '''#!/bin/sh
-if [ "$#" = 3 ] && [ "$1" = -c ] && [ "$3" = "$WORK" ]; then
-    case "$2" in
-        %u) echo 0; exit 0 ;;
-        %u:%a) mode=$(/usr/bin/stat -c %a "$3") || exit 1; echo "0:$mode"; exit 0 ;;
+if [ "$#" = 3 ] && [ "$1" = -c ]; then
+    case "$3" in
+        "$WORK"|"$WORK"/*)
+            case "$2" in
+                %u) echo 0; exit 0 ;;
+                %u:%a) mode=$(/usr/bin/stat -c %a "$3") || exit 1; echo "0:$mode"; exit 0 ;;
+            esac
+            ;;
     esac
 fi
 exec /usr/bin/stat "$@"

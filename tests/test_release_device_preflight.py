@@ -41,14 +41,14 @@ class ReleaseDevicePreflightTests(unittest.TestCase):
 
     def test_release_versions_and_path_are_pinned(self):
         source = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("mt6639-6g:v0.2.16", source)
-        self.assertIn("mt6639-hotspot:v0.2.9", source)
+        self.assertIn("mt6639-6g:v0.3.0", source)
+        self.assertIn("mt6639-hotspot:v0.2.22", source)
         self.assertIn("mt6639-bt:v0.1.2", source)
         self.assertIn("EXPECTED_KSU_MANAGER_VERSION='v3.3.1'", source)
         self.assertIn("result FAIL kernelsu_su_compat", source)
         self.assertIn("result FAIL concurrency_gate_marker present", source)
         self.assertIn('result PASS "module_${id}_enabled"', source)
-        self.assertIn("expected_0.2.6", source)
+        self.assertIn("expected_0.2.7", source)
         self.assertIn("/data/local/tmp/mt6639-release-preflight-*", source)
         self.assertIn('"$(stat -c %a "$D")" = 700', source)
 

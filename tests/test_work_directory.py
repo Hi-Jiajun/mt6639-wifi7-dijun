@@ -149,6 +149,27 @@ int main(int argc, char **argv) {
         after = subprocess.run([str(exe), str(jail)], timeout=10)
         self.assertEqual(after.returncode, 0)
 
+    def test_existing_writable_transactions_subdir_is_fixed_or_rejected(self):
+        tx_root = self.work / 'transactions'
+        tx_root.mkdir(mode=0o777)
+        tx_root.chmod(0o777)
+        child = tx_root / 't-existing'
+        child.mkdir(mode=0o750)
+        child.chmod(0o750)
+        result = self.source_lib()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(tx_root.stat().st_mode & 0o7777, 0o700)
+        self.assertEqual(child.stat().st_mode & 0o7777, 0o750)
+
+        shutil.rmtree(tx_root)
+        outside = self.fixture.root / 'outside-tx'
+        outside.mkdir(mode=0o755)
+        tx_root.symlink_to(outside)
+        rejected = self.source_lib()
+        self.assertEqual(rejected.returncode, 3)
+        self.assertIn('work_directory_not_private', rejected.stderr)
+        self.assertEqual(outside.stat().st_mode & 0o7777, 0o755)
+
 
 if __name__ == '__main__':
     unittest.main()

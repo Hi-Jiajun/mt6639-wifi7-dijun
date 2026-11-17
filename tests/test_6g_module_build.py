@@ -11,7 +11,8 @@ import zipfile
 REPO = Path(__file__).resolve().parents[1]
 BUILDER = REPO / "tools/build_6g_module.sh"
 MODULE = REPO / "modules/mt6639-6g"
-SHIPPED = REPO / "release/artifacts/mt6639-6g-v0.3.3-dijun.1.zip"
+EXPECTED_HASH = "1d73ed6815e642a65aac1229b8c98ad5bbfee78d140a989cb0ec8725c269dba9"
+SHIPPED = REPO / "release/artifacts/mt6639-6g-v0.3.0.zip"
 NATIVE = Path(os.environ.get("MT6639_MOUNT_TXN", MODULE / "bin/mount-txn"))
 
 
@@ -56,11 +57,11 @@ class SixGModuleBuildTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(hashlib.sha256(first.read_bytes()).hexdigest(),
                              hashlib.sha256(second.read_bytes()).hexdigest())
-            # Two builds of the same source are byte-identical. The absolute
-            # hash is only comparable against the shipped artifact: Info-ZIP
-            # version differences change the container bytes, so content
-            # identity (member set + per-member hashes) is the portable claim.
+            # Two builds of the same source are byte-identical. Info-ZIP
+            # version differences change container bytes across hosts, so
+            # verify member-by-member content identity against SHIPPED.
             if SHIPPED.is_file():
+                self.assertEqual(sha256(SHIPPED), EXPECTED_HASH)
                 self.assertEqual(members(first), members(SHIPPED))
             with zipfile.ZipFile(first) as archive:
                 content = {
@@ -76,7 +77,7 @@ class SixGModuleBuildTests(unittest.TestCase):
             ):
                 self.assertIn(required, content)
             prop = content["module.prop"].decode()
-            self.assertIn("version=v0.3.3-dijun.1", prop)
+            self.assertIn("version=v0.3.0", prop)
             self.assertIn("versionCode=22", prop)
             self.assertEqual(content["module.prop"], content["module.prop.template"])
             sums = content["SHA256SUMS"].decode()

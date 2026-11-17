@@ -4,8 +4,16 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OUT=${MT6639_UI_HOTSPOT_TEST_DIR:-"$ROOT/outputs/test-mt6639-ui-hotspot-status"}
 ANDROID_JAR=${ANDROID_JAR:-}
-[ -n "$ANDROID_JAR" ] || {
-    echo "ANDROID_JAR must point at platforms/android-*/android.jar" >&2; exit 64; }
+if [ -z "$ANDROID_JAR" ]; then
+    sdk_root=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}
+    if [ -n "$sdk_root" ] && [ -d "$sdk_root/platforms" ]; then
+        ANDROID_JAR=$(ls -1 "$sdk_root"/platforms/android-*/android.jar 2>/dev/null | sort -V | tail -1 || true)
+    fi
+fi
+[ -n "$ANDROID_JAR" ] && [ -f "$ANDROID_JAR" ] || {
+    echo "ANDROID_JAR must point at platforms/android-*/android.jar (or set ANDROID_HOME)" >&2
+    exit 64
+}
 mkdir -p "$OUT"
 javac -encoding UTF-8 -d "$OUT" \
     "$ROOT/modules/mt6639-ui-lsposed/src/com/hiliang/mt6639ui/HotspotStatus.java" \

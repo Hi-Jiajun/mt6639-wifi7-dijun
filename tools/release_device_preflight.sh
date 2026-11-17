@@ -102,7 +102,7 @@ else
     result FAIL xringroot_tool missing "expected_$EXPECTED_XRINGROOT_SHORT"
 fi
 
-for pair in 'mt6639-6g:v0.2.16' 'mt6639-hotspot:v0.2.9' 'mt6639-bt:v0.1.2'; do
+for pair in 'mt6639-6g:v0.3.0' 'mt6639-hotspot:v0.2.22' 'mt6639-bt:v0.1.2'; do
     id=${pair%%:*}
     expected=${pair#*:}
     actual=$(module_version "$id")
@@ -157,7 +157,7 @@ fi
 if pm path com.hiliang.mt6639ui > "$D/ui.path" 2>&1; then
     value=$(dumpsys package com.hiliang.mt6639ui 2>/dev/null |
         sed -n 's/^[[:space:]]*versionName=//p' | head -1)
-    [ "$value" = 0.2.6 ] && result PASS ui_lsposed "$value" || result WARN ui_lsposed "${value:-unknown}" expected_0.2.6
+    [ "$value" = 0.2.7 ] && result PASS ui_lsposed "$value" || result WARN ui_lsposed "${value:-unknown}" expected_0.2.7
 else
     result WARN ui_lsposed missing
 fi

@@ -526,7 +526,11 @@ flock -n 8 8>&8 || exit 75
 rm -f "$D/claimed"
 (set -C; : > "$D/claimed") 2>/dev/null || exit 73
 [ "$(getprop ro.build.fingerprint)" = 'Xiaomi/dijun/dijun:17/CP2A.260605.016/OS4.0.0.19.XODCNXM:user/release-keys' ] || exit 69
-hash=$(sha256sum /vendor/lib/modules/wlan_drv_gen4m_eap_6639.ko) || exit 69
+KO_PATH=/vendor/lib/modules/wlan_drv_gen4m_eap_6639.ko
+if [ ! -e "$KO_PATH" ] && [ ! -L "$KO_PATH" ]; then
+    KO_PATH=/vendor_dlkm/lib/modules/wlan_drv_gen4m_eap_6639.ko
+fi
+hash=$(sha256sum "$KO_PATH") || exit 69
 [ "${hash%% *}" = 54619c2e9521fc084edd4ec93282715ac10e716ad4ae0a27ec5588fb64e618ea ] || exit 69
 hash=$(sha256sum "$D/hostapd") || exit 69
 [ "${hash%% *}" = 15023e3bfe6b08415ebcc92479c0cd4fb14adb57b9010266af73bcc1bdc7bc2b ] || exit 69

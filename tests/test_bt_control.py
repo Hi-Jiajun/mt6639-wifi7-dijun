@@ -75,3 +75,43 @@ esac
             self.assertEqual(restored.returncode, 0, restored.stderr)
             self.assertEqual((base / boot_id / "state").read_text(), "restored\n")
             self.assertTrue(all(p.read_text() == "false\n" for p in props.iterdir()))
+
+    def test_state_root_rejects_symlink_and_file_without_touching_targets(self):
+        with tempfile.TemporaryDirectory(prefix="mt6639-bt-root-") as tmp:
+            root = Path(tmp)
+            module = root / "module"
+            shutil.copytree(REPO / "modules/mt6639-bt", module)
+            script = module / "bin/control.sh"
+            base = root / "state"
+            boot = root / "boot"
+            boot.write_text("11111111-1111-4111-8111-111111111111\n")
+            script.write_text(script.read_text().replace(
+                "BASE=/data/adb/mt6639-bt", "BASE=" + str(base)).replace(
+                "/proc/sys/kernel/random/boot_id", str(boot)))
+            stub = root / "stub"
+            stub.mkdir()
+            for name, body in {
+                "id": '#!/bin/sh\nif [ "$1" = -Z ]; then echo u:r:ksu:s0; else echo 0; fi\n',
+                "getenforce": '#!/bin/sh\necho Enforcing\n',
+                "getprop": '#!/bin/sh\necho dijun\n',
+            }.items():
+                p = stub / name
+                p.write_text(body)
+                p.chmod(0o755)
+            env = dict(os.environ, PATH=f"{stub}:{os.environ['PATH']}")
+
+            target = root / "outside"
+            target.mkdir(mode=0o755)
+            target.chmod(0o755)
+            base.symlink_to(target)
+            res_sym = subprocess.run(["sh", str(script), "status"], env=env, text=True, capture_output=True, timeout=10)
+            self.assertNotEqual(res_sym.returncode, 0)
+            self.assertIn("state_root_symlink", res_sym.stderr)
+            self.assertEqual(target.stat().st_mode & 0o777, 0o755)
+
+            base.unlink()
+            base.write_text("regular-file")
+            res_file = subprocess.run(["sh", str(script), "status"], env=env, text=True, capture_output=True, timeout=10)
+            self.assertNotEqual(res_file.returncode, 0)
+            self.assertIn("state_root_not_dir", res_file.stderr)
+            self.assertEqual(base.read_text(), "regular-file")

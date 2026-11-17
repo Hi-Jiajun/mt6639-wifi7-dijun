@@ -26,7 +26,7 @@ class Stage6gCandidateTests(unittest.TestCase):
     def test_pinned_candidate_is_loaded_and_plan_stops_before_reboot(self):
         candidate = STAGE.load_candidate(MANIFEST, REPO)
         self.assertEqual(candidate.artifact_id, "mt6639-6g")
-        self.assertEqual(candidate.version, "v0.2.16")
+        self.assertEqual(candidate.version, "v0.3.0")
         plan = STAGE.plan_steps(candidate)
         self.assertEqual(
             [step["id"] for step in plan],
@@ -94,7 +94,7 @@ class Stage6gCandidateTests(unittest.TestCase):
                 "elif cmd.startswith('sha256sum /odm/firmware/wifi.cfg'): print('e4dcd846f31077864932b499d462cfd6a8ca1befc6386f502813e0ba053cc154  /odm/firmware/wifi.cfg')\n"
                 "elif cmd.startswith('sha256sum /data/local/tmp/mt6639-stage-AAAAAA/candidate.zip'): print(os.environ['FAKE_CANDIDATE_HASH']+'  candidate.zip')\n"
                 "elif cmd.startswith('/data/adb/ksud module install '): staged.touch(); print('installed')\n"
-                "elif cmd=='cat /data/adb/modules_update/mt6639-6g/module.prop': print('id=mt6639-6g\\nversion=v0.2.16\\nversionCode=18')\n"
+                "elif cmd=='cat /data/adb/modules_update/mt6639-6g/module.prop': print('id=mt6639-6g\\nversion=v0.3.0\\nversionCode=22')\n"
                 "elif cmd.startswith('cd /data/adb/modules_update/mt6639-6g'): print('SHA256SUMS: OK')\n"
                 "else: print('unexpected:'+cmd, file=sys.stderr); sys.exit(70)\n",
                 encoding="utf-8")
@@ -188,7 +188,7 @@ class Stage6gCandidateTests(unittest.TestCase):
                 "elif cmd=='getprop ro.build.fingerprint': print('Xiaomi/dijun/dijun:17/CP2A.260605.016/OS4.0.0.19.XODCNXM:user/release-keys')\n"
                 "elif cmd=='uname -r': print('6.18.21-android17-5-g1d099fcb35e0-abogki538445360-4k')\n"
                 "elif cmd=='getenforce': print('Enforcing')\n"
-                "elif cmd=='cat /data/adb/modules/mt6639-6g/module.prop': print('id=mt6639-6g\\nversion=v0.2.16\\nversionCode=18')\n"
+                "elif cmd=='cat /data/adb/modules/mt6639-6g/module.prop': print('id=mt6639-6g\\nversion=v0.3.0\\nversionCode=22')\n"
                 "elif cmd=='cat /proc/sys/kernel/random/boot_id': print('22222222-2222-4222-8222-222222222222')\n"
                 "elif cmd.endswith('control.sh /data/adb/modules/mt6639-6g status'): print('state=active\\nactive_tx=/data/adb/mt6639-6g/transactions/t-new\\nguardian=alive')\n"
                 "elif cmd=='iw phy': print('Band 1: 2412 MHz\\nBand 2: 5180 MHz')\n"
@@ -229,7 +229,7 @@ class Stage6gCandidateTests(unittest.TestCase):
                 "elif cmd=='getprop ro.build.fingerprint': print('Xiaomi/dijun/dijun:17/CP2A.260605.016/OS4.0.0.19.XODCNXM:user/release-keys')\n"
                 "elif cmd=='uname -r': print('6.18.21-android17-5-g1d099fcb35e0-abogki538445360-4k')\n"
                 "elif cmd=='getenforce': print('Enforcing')\n"
-                "elif cmd=='cat /data/adb/modules/mt6639-6g/module.prop': print('id=mt6639-6g\\nversion=v0.2.16\\nversionCode=18')\n"
+                "elif cmd=='cat /data/adb/modules/mt6639-6g/module.prop': print('id=mt6639-6g\\nversion=v0.3.0\\nversionCode=22')\n"
                 "elif cmd=='cat /proc/sys/kernel/random/boot_id': print('22222222-2222-4222-8222-222222222222')\n"
                 "elif cmd.endswith('control.sh /data/adb/modules/mt6639-6g status'): print('state=active\\nactive_tx=/data/adb/mt6639-6g/transactions/t-new\\nguardian=alive')\n"
                 "elif cmd=='iw phy':\n"
@@ -264,7 +264,7 @@ class Stage6gCandidateTests(unittest.TestCase):
                 "elif cmd=='getprop ro.build.fingerprint': print('Xiaomi/dijun/dijun:17/CP2A.260605.016/OS4.0.0.19.XODCNXM:user/release-keys')\n"
                 "elif cmd=='uname -r': print('6.18.21-android17-5-g1d099fcb35e0-abogki538445360-4k')\n"
                 "elif cmd=='getenforce': print('Enforcing')\n"
-                "elif cmd=='cat /data/adb/modules/mt6639-6g/module.prop': print('id=mt6639-6g\\nversion=v0.2.16\\nversionCode=18')\n"
+                "elif cmd=='cat /data/adb/modules/mt6639-6g/module.prop': print('id=mt6639-6g\\nversion=v0.3.0\\nversionCode=22')\n"
                 "elif cmd=='cat /proc/sys/kernel/random/boot_id': print('22222222-2222-4222-8222-222222222222')\n"
                 "elif cmd.endswith('control.sh /data/adb/modules/mt6639-6g status'): print('state=active\\nactive_tx=/data/adb/mt6639-6g/transactions/t-new\\nguardian=alive')\n"
                 "elif cmd=='iw phy': print('    * 6135.0 MHz [37] (disabled)')\n"
@@ -296,7 +296,7 @@ class Stage6gCandidateTests(unittest.TestCase):
                 "elif cmd=='getprop ro.build.fingerprint': print('Xiaomi/dijun/dijun:17/CP2A.260605.016/OS4.0.0.19.XODCNXM:user/release-keys')\n"
                 "elif cmd=='uname -r': print('6.18.21-android17-5-g1d099fcb35e0-abogki538445360-4k')\n"
                 "elif cmd=='getenforce': print('Enforcing')\n"
-                "elif cmd=='cat /data/adb/modules/mt6639-6g/module.prop': print('id=mt6639-6g\\nversion=v0.2.16\\nversionCode=18')\n"
+                "elif cmd=='cat /data/adb/modules/mt6639-6g/module.prop': print('id=mt6639-6g\\nversion=v0.3.0\\nversionCode=22')\n"
                 "elif cmd=='cat /proc/sys/kernel/random/boot_id': print('22222222-2222-4222-8222-222222222222')\n"
                 "elif cmd.endswith('control.sh /data/adb/modules/mt6639-6g status'): print('state=active\\nactive_tx=/data/adb/mt6639-6g/transactions/t-new\\nguardian=alive')\n"
                 "elif cmd=='iw phy': print('    * 5955.0 MHz [1]')\n"
@@ -310,6 +310,49 @@ class Stage6gCandidateTests(unittest.TestCase):
         self.assertEqual(result["sixg_samples"], [1, 1, 1])
         self.assertEqual(result["sixg_6135_samples"], [0, 0, 0])
         self.assertTrue(result["refresh_required"])
+
+    def test_os4_stable_kernel_and_fingerprint_are_accepted(self):
+        candidate = STAGE.load_candidate(MANIFEST, REPO)
+        with tempfile.TemporaryDirectory(prefix="mt6639-stage-os4stable-") as td:
+            root = Path(td)
+            adb = root / "adb"
+            adb.write_text(
+                "#!/usr/bin/python3\n"
+                "import os, sys\n"
+                "args=sys.argv[1:]\n"
+                "if args[:2]==['-P','5038']: args=args[2:]\n"
+                "if args[:2]==['-s','YOUR_SERIAL']: args=args[2:]\n"
+                "cmd=args[1] if args and args[0]=='shell' else None\n"
+                "if cmd=='id -u': print('0')\n"
+                "elif cmd=='su -c id': print('uid=0(root) context=u:r:ksu:s0')\n"
+                "elif cmd=='getprop ro.build.fingerprint': print(os.environ['FAKE_FP'])\n"
+                "elif cmd=='uname -r': print(os.environ['FAKE_KERNEL'])\n"
+                "elif cmd=='getenforce': print('Enforcing')\n"
+                "elif cmd=='cat /data/adb/modules/mt6639-6g/module.prop': print('id=mt6639-6g\\nversion=v0.2.16\\nversionCode=18')\n"
+                "elif cmd=='cat /proc/sys/kernel/random/boot_id': print('11111111-1111-4111-8111-111111111111')\n"
+                "else: print('unexpected:'+str(cmd), file=sys.stderr); sys.exit(70)\n",
+                encoding="utf-8",
+            )
+            adb.chmod(0o755)
+            accepted = STAGE.probe_device(
+                candidate, adb=str(adb), serial="YOUR_SERIAL", port=5038,
+                env=dict(
+                    os.environ,
+                    FAKE_FP="Xiaomi/dijun/dijun:17/CP2A.260605.016/OS4.0.4.0.XODCNXM:user/release-keys",
+                    FAKE_KERNEL="6.18.21-android17-5-g284297031c53-abogki553682993-4k",
+                ),
+            )
+            self.assertTrue(accepted["ready"], accepted)
+            rejected = STAGE.probe_device(
+                candidate, adb=str(adb), serial="YOUR_SERIAL", port=5038,
+                env=dict(
+                    os.environ,
+                    FAKE_FP="Xiaomi/other/other:17/CP2A/OS3.0.0.1:user/release-keys",
+                    FAKE_KERNEL="6.18.21-android17-5-unknown",
+                ),
+            )
+            self.assertFalse(rejected["ready"])
+            self.assertEqual(rejected["failures"], ["fingerprint", "kernel"])
 
 
 if __name__ == "__main__":

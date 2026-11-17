@@ -1,15 +1,5 @@
 # MT6639 / Xiaomi 15S Pro（Dijun）Wi‑Fi 与蓝牙能力研究
 
-## 6GHz 模块更新
-
-6GHz 模块源码版本为 **v0.3.3-dijun.1**：
-
-- 兼容表支持已核对的 OS4 内核、原厂配置与 WLAN 驱动组合，同一内核可选择多个已核对驱动变体；启用、备份、恢复和状态检查共用选定的精确哈希。系统显示版本不作为门槛。
-- 在写入日志、锁和状态前，将模块自己的工作目录创建或修正为 root 所有的 `0700`，解决现有 `0777` 目录被原生祖先检查拒绝而返回 `64` 的问题。原生限制保持，事务资料保留；更新后重启，由既有跨启动检查整理旧记录。
-- 动态状态卡显示组件匹配、配置、事务、6GHz 已注册信道数和连接频率。状态写入仅允许改变 `module.prop` 的 description；模板和静态文件继续接受完整性校验。
-
-用户已反馈该候选显示“事务运行、临时配置、60 个已注册 6GHz 信道”。这是用户提供的状态结果，不代表已验证实际关联、吞吐、恢复或全部系统版本。离线验证及适配边界见 [维护记录](docs/研究-OS4新版兼容与模块状态卡-20261115.md)。历史实机结论保留各自版本与前提。
-
 > **English abstract.** An open research archive of the MediaTek MT6639 Wi‑Fi/Bluetooth stack on
 > Xiaomi 15S Pro (codename *Dijun*): what the vendor firmware actually gates, which configurations
 > can be reproduced on real hardware, and where the limits are. It ships read‑only inspection and
@@ -33,10 +23,10 @@
 | 目录 | 内容 |
 | --- | --- |
 | `tools/` | 只读巡检、DUP/OFDMA/打孔取证、F01–F10 矩阵运行器、发布审计；依赖 Python 3 标准库 |
-| `tests/` | 主机侧离线测试（447 项，按环境跳过缺失依赖的项目），含 C 夹具、Java LSPosed 夹具与 shell 契约测试 |
+| `tests/` | 主机侧离线测试（451 项），含 C 夹具、Java LSPosed 夹具与 shell 契约测试 |
 | `native/` | 原生夹具源码：恢复事务、netdev、mlo-gate、hostapd、TWT 桥 |
 | `modules/` | 6 个 KernelSU / LSPosed 模块源码与可复现构建脚本 |
-| `docs/` | 精选研究记录 41 篇：能力台账、门禁分析、逐项验证与部署/构建说明 |
+| `docs/` | 精选研究记录 42 篇：能力台账、门禁分析、逐项验证与部署/构建说明 |
 | `release/` | 候选构件清单与校验值；构件本体在 [Releases](../../releases) |
 
 ## 快速开始
@@ -61,7 +51,7 @@ python3 tools/inspect_mt6639.py --adb /absolute/path/to/adb \
 
 - [能力台账](docs/mt6639-plan/能力台账.md)：逐项登记已实现 / 已最小验证 / 已完整验收，以及未晋级原因。
 - [范围-手机终端适用](docs/mt6639-plan/范围-手机终端适用-20261028.md)：适配范围与用例基线。
-- [6GHz 门禁与生命周期](docs/分析-MT6639六GHz门禁与生命周期-20261022.md)、[全部监管表](docs/分析-MT6639全部监管表-20261022.md)、[信道禁用路径](docs/分析-MT6639信道禁用路径-20261022.md)。
+- [6GHz 门禁与生命周期](docs/分析-MT6639六GHz门禁与生命周期-20261022.md)、[全部监管表](docs/分析-MT6639全部监管表-20261022.md)、[信道禁用路径](docs/分析-MT6639信道禁用路径-20261022.md)、[OS4 新版兼容与动态状态卡](docs/研究-OS4新版兼容与模块状态卡-20261115.md)。
 - [国家码来源与 force-country-code 生命周期](docs/研究-国家码来源与force-country-code生命周期-20261027.md)。
 - [原生 EHT 热点与共享接线](docs/部署-MT6639-UI-LSPosed-20261023.md)、[热点模块生命周期与可复现构建](docs/验证-热点模块生命周期与构建-20261025.md)。
 - [DUP 三点取证](docs/分析-DUP三点取证方案-20261028.md)、[F04 正式测试流程](docs/分析-F04正式测试流程-20261028.md)、[打孔 ABC 三段](docs/验证-打孔ABC三段-20261028.md)。
@@ -80,11 +70,11 @@ python3 tools/inspect_mt6639.py --adb /absolute/path/to/adb \
 
 ## Release 构件
 
-[上游 `v0.1.0-pre`](https://github.com/Hi-Jiajun/mt6639-wifi7-dijun/releases/tag/v0.1.0-pre) 附五个历史候选（非稳定版，未完成全部验收）：
+`v0.2.0-pre` 附五个当前候选（非稳定版，未完成全部验收；包含来自 `@xiatian410` 的 [PR #1](https://github.com/Hi-Jiajun/mt6639-wifi7-dijun/pull/1) 对 HyperOS 4 兼容表、动态状态卡与 root `0700` 工作目录的贡献与后续硬化）：
 
 | 构件 | 版本 | SHA-256（同时见 `release/SHA256SUMS`） |
 | --- | --- | --- |
-| `mt6639-6g-v0.2.16.zip` | 6G 模块 | `3a607543f3d455f212ff5d2a7423a16b6dee1edd338b3231bbda7935b1084430` |
+| `mt6639-6g-v0.3.0.zip` | 6G 模块 | `1d73ed6815e642a65aac1229b8c98ad5bbfee78d140a989cb0ec8725c269dba9` |
 | `mt6639-hotspot-v0.2.22.zip` | 热点模块 | `f38c8aba8ac57acdb7a9a06a1531eb7f277151a87a315318e33bad50a8abf9f8` |
 | `mt6639-bt-v0.1.2.zip` | 蓝牙模块 | `c17f8e5a276d89c76901fc0596a0722480a502748f27e55febe513e0732efa89` |
 | `mt6639-ui-lsposed-0.2.7.apk` | UI 徽标 | `8d8f03fe49f1565e6c99fe217b420ed570d47ca9b04b5a310cabf9eb1c2922e3` |

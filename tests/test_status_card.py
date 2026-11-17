@@ -35,6 +35,7 @@ class StatusCardTests(unittest.TestCase):
             '#!/bin/sh\n[ "$2" != apply ] || exit "${CARD_APPLY_RC:-7}"\n'
             '[ "$2" = status ] || exit 66\ncat "$CARD_RUNTIME"\nexit "${CARD_NATIVE_RC:-0}"\n')
         scripts = {
+            "id": '#!/bin/sh\n[ "$1" = -u ] && echo 0 || echo u:r:ksu:s0\n',
             "uname": '#!/bin/sh\necho "${CARD_KERNEL:-fixture-kernel}"\n',
             "iw": '''#!/bin/sh
 echo "$*" >> "$CARD_CALLS"

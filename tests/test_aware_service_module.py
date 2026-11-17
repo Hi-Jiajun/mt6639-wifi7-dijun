@@ -7,6 +7,8 @@ import unittest
 import zipfile
 
 
+import pubenv
+
 REPO = Path(__file__).resolve().parents[1]
 MODULE = REPO / "modules/mt6639-aware-lsposed"
 APK = REPO / "release/artifacts/mt6639-aware-service-0.1.3.apk"
@@ -50,7 +52,8 @@ class AwareServiceModuleTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, source)
 
-    @unittest.skipUnless(APK.is_file(), "Aware service candidate APK is unavailable")
+    @unittest.skipUnless(APK.is_file() and pubenv.AAPT2 and pubenv.DROIDASC,
+                         "candidate APK, aapt2 or droidasc unavailable")
     def test_apk_scope_entry_and_hash(self):
         manifest = subprocess.run(
             ["aapt2", "dump", "xmltree", str(APK), "--file", "AndroidManifest.xml"],

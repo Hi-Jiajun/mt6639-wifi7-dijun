@@ -58,7 +58,15 @@ prepare_work_directory() {
     [ "$work_owner" = "$expected_owner" ] || return 1
     chmod 0700 "$WORK" 2>/dev/null || return 1
     [ ! -L "$WORK" ] &&
-        [ "$(stat -c '%u:%a' "$WORK" 2>/dev/null)" = "$expected_owner:700" ]
+        [ "$(stat -c '%u:%a' "$WORK" 2>/dev/null)" = "$expected_owner:700" ] || return 1
+    if [ -L "$WORK/transactions" ] || [ -e "$WORK/transactions" ]; then
+        [ -d "$WORK/transactions" ] && [ ! -L "$WORK/transactions" ] || return 1
+        txn_owner=$(stat -c %u "$WORK/transactions" 2>/dev/null) || return 1
+        [ "$txn_owner" = "$expected_owner" ] || return 1
+        chmod 0700 "$WORK/transactions" 2>/dev/null || return 1
+        [ ! -L "$WORK/transactions" ] &&
+            [ "$(stat -c '%u:%a' "$WORK/transactions" 2>/dev/null)" = "$expected_owner:700" ] || return 1
+    fi
 }
 prepare_work_directory || {
     echo 'REJECT work_directory_not_private' >&2

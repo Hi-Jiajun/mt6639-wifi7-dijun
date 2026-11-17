@@ -697,6 +697,73 @@ process_one() { echo process >> "$D/calls"; }
         self.assertIn("nonregular", rejected)
         self.assertIn("invalid", rejected)
 
+    def test_control_work_directory_rejects_symlink_and_non_root(self):
+        control = (MOD / "bin/control.sh").read_text(encoding="utf-8")
+        start = control.index("prepare_work_directory() {")
+        function = control[start:control.index("\n}\n", start) + 2]
+        with tempfile.TemporaryDirectory(prefix="mt6639-hotspot-workdir-") as td:
+            root = Path(td)
+            parent = root / "parent"
+            parent.mkdir(mode=0o755)
+            target = root / "target"
+            target.mkdir(mode=0o755)
+            target.chmod(0o755)
+            sentinel = target / "keep"
+            sentinel.write_text("untouched", encoding="utf-8")
+
+            bindir = root / "bin"
+            bindir.mkdir()
+            stat_shim = bindir / "stat"
+            stat_shim.write_text(
+                '#!/bin/sh\n'
+                'if [ "${FAKE_NON_ROOT_TARGET:-}" = "$3" ]; then\n'
+                '  case "$2" in %u) echo 1000; exit 0 ;; %u:%a) echo 1000:700; exit 0 ;; esac\nfi\n'
+                'case "$2" in\n'
+                '  %u) echo 0 ;;\n'
+                '  %u:%a) mode=$(/usr/bin/stat -c %a "$3") || exit 1; echo "0:$mode" ;;\n'
+                '  *) exec /usr/bin/stat "$@" ;;\n'
+                'esac\n',
+                encoding="utf-8",
+            )
+            stat_shim.chmod(0o755)
+            env = dict(os.environ, PATH=f"{bindir}:/usr/bin:/bin")
+
+            def run_prepare(work_path, **extra):
+                return subprocess.run(
+                    ["sh", "-c", f'set -u\nWORK=$1\n{function}\nprepare_work_directory', "sh", str(work_path)],
+                    capture_output=True, text=True, env=dict(env, **extra), timeout=10,
+                )
+
+            # 1. Symlink $WORK is rejected without modifying target
+            work = parent / "work"
+            work.symlink_to(target, target_is_directory=True)
+            res = run_prepare(work)
+            self.assertEqual(res.returncode, 77, res.stderr)
+            self.assertEqual(target.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(sentinel.read_text(), "untouched")
+            work.unlink()
+
+            # 2. Regular file $WORK is rejected
+            work.write_text("not-dir", encoding="utf-8")
+            self.assertEqual(run_prepare(work).returncode, 77)
+            work.unlink()
+
+            # 3. Non-root owner on existing $WORK or parent is rejected
+            work.mkdir(mode=0o777)
+            work.chmod(0o777)
+            self.assertEqual(run_prepare(work, FAKE_NON_ROOT_TARGET=str(work)).returncode, 77)
+            self.assertEqual(work.stat().st_mode & 0o777, 0o777)
+            self.assertEqual(run_prepare(work, FAKE_NON_ROOT_TARGET=str(parent)).returncode, 77)
+
+            # 4. Root-owned 0777 $WORK is tightened to 0700 without touching child
+            child = work / "child"
+            child.write_text("keep", encoding="utf-8")
+            child.chmod(0o644)
+            ok = run_prepare(work)
+            self.assertEqual(ok.returncode, 0, ok.stderr)
+            self.assertEqual(work.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(child.stat().st_mode & 0o777, 0o644)
+
 
 if __name__ == "__main__":
     unittest.main()
