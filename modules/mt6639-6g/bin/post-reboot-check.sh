@@ -3,19 +3,25 @@
 set -u
 MODE=${1:-active}
 case "$MODE" in active|restored) ;; *) echo 'usage: post-reboot-check.sh [active|restored]'; exit 64 ;; esac
-MODDIR=/data/adb/modules/mt6639-6g
-WORK=/data/adb/mt6639-6g
-CFG=/odm/firmware/wifi.cfg
-KO=/vendor/lib/modules/wlan_drv_gen4m_eap_6639.ko
-CFG_SHA=e4dcd846f31077864932b499d462cfd6a8ca1befc6386f502813e0ba053cc154
-KO_SHA=54619c2e9521fc084edd4ec93282715ac10e716ad4ae0a27ec5588fb64e618ea
+if [ "${MT6639_TEST_MODE:-0}" = 1 ]; then
+    MODDIR=${MODDIR:?test mode requires MODDIR}
+else
+    MODDIR=/data/adb/modules/mt6639-6g
+fi
+. "$MODDIR/bin/lib.sh"
+KO=$STOCK_KO
+CFG_SHA=$STOCK_CFG_SHA
+KO_SHA=$STOCK_KO_SHA
 fail=0
 say() { echo "$*"; }
 bad() { echo "FAIL $*"; fail=$((fail+1)); }
 
-boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)
+boot=$(boot_id)
 boot8=$(printf '%s' "$boot" | cut -c1-8)
 say "boot=$boot"
+say "compatibility_profile=$COMPAT_PROFILE"
+[ -z "$COMPAT_ERROR" ] || bad "$COMPAT_ERROR"
+[ "$(uname -r)" = "$KERNEL_GUARD" ] || bad kernel_mismatch
 
 [ "$(id -u)" = 0 ] && say "root=uid0" || bad "root_uid_not_0"
 ctx=$(cat /proc/self/attr/current 2>/dev/null | tr -d '\000') || true
@@ -36,7 +42,7 @@ if [ -f "$MODDIR/module.prop" ]; then
     # tree against its own SHA256SUMS instead — it is stronger and version-agnostic.
     [ -f "$MODDIR/SHA256SUMS" ] || bad "module_sums_missing"
     if [ -f "$MODDIR/SHA256SUMS" ]; then
-        ( cd "$MODDIR" && sha256sum -c SHA256SUMS >/dev/null 2>&1 ) ||
+        sh "$MODDIR/bin/verify-module.sh" "$MODDIR" ||
             bad "module_sums_mismatch"
     fi
 else
@@ -54,7 +60,7 @@ if [ "$MODE" = active ]; then
     [ "$(sha256sum "$backup" 2>/dev/null | cut -d' ' -f1)" = "$CFG_SHA" ] || bad "backup_not_stock"
     expected=$(sed 's/^DisallowBand6G 1$/DisallowBand6G 0/' "$backup" 2>/dev/null | sha256sum | cut -d' ' -f1)
     [ "$cfg" = "$expected" ] || bad "cfg_not_expected_candidate"
-    grep -q " $CFG " /proc/self/mountinfo 2>/dev/null || bad "cfg_mount_missing"
+    grep -q " $CFG " "$MOUNTINFO_FILE" 2>/dev/null || bad "cfg_mount_missing"
     [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ] || bad "module_disabled_or_removing"
     runtime=$(sh "$MODDIR/bin/native.sh" "$MODDIR" status) || bad "native_status_failed"
     say "$runtime"
@@ -65,7 +71,7 @@ if [ "$MODE" = active ]; then
     grep -q '"event":"persistent-hold"' "$tx/guardian.log" 2>/dev/null || bad "persistent_hold_not_observed"
 else
     [ "$cfg" = "$CFG_SHA" ] || bad "cfg_not_stock"
-    grep -q " $CFG " /proc/self/mountinfo 2>/dev/null
+    grep -q " $CFG " "$MOUNTINFO_FILE" 2>/dev/null
     case "$?" in 0) bad "cfg_still_mounted" ;; 1) say "cfg_mount=none" ;; *) bad "mountinfo_unreadable" ;; esac
     runtime=$(sh "$MODDIR/bin/native.sh" "$MODDIR" status) || bad "native_status_failed"
     say "$runtime"

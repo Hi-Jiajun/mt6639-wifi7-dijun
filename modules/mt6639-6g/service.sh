@@ -6,6 +6,7 @@ MODDIR=${0%/*}
 
 . "$MODDIR/bin/lib.sh"
 [ -f "$MODDIR/config.conf" ] && . "$MODDIR/config.conf"
+sh "$MODDIR/bin/status-card.sh" "$MODDIR" update >/dev/null 2>&1 || :
 
 if [ "${ENABLE_6G:-0}" != 1 ]; then
     log "service: boot=$(boot_id | cut -c1-8) ENABLE_6G=0, nothing to do"

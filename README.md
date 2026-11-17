@@ -1,5 +1,15 @@
 # MT6639 / Xiaomi 15S Pro（Dijun）Wi‑Fi 与蓝牙能力研究
 
+## 6GHz 模块更新
+
+6GHz 模块源码版本为 **v0.3.3-dijun.1**：
+
+- 兼容表支持已核对的 OS4 内核、原厂配置与 WLAN 驱动组合，同一内核可选择多个已核对驱动变体；启用、备份、恢复和状态检查共用选定的精确哈希。系统显示版本不作为门槛。
+- 在写入日志、锁和状态前，将模块自己的工作目录创建或修正为 root 所有的 `0700`，解决现有 `0777` 目录被原生祖先检查拒绝而返回 `64` 的问题。原生限制保持，事务资料保留；更新后重启，由既有跨启动检查整理旧记录。
+- 动态状态卡显示组件匹配、配置、事务、6GHz 已注册信道数和连接频率。状态写入仅允许改变 `module.prop` 的 description；模板和静态文件继续接受完整性校验。
+
+用户已反馈该候选显示“事务运行、临时配置、60 个已注册 6GHz 信道”。这是用户提供的状态结果，不代表已验证实际关联、吞吐、恢复或全部系统版本。离线验证及适配边界见 [维护记录](docs/研究-OS4新版兼容与模块状态卡-20261115.md)。历史实机结论保留各自版本与前提。
+
 > **English abstract.** An open research archive of the MediaTek MT6639 Wi‑Fi/Bluetooth stack on
 > Xiaomi 15S Pro (codename *Dijun*): what the vendor firmware actually gates, which configurations
 > can be reproduced on real hardware, and where the limits are. It ships read‑only inspection and
@@ -23,7 +33,7 @@
 | 目录 | 内容 |
 | --- | --- |
 | `tools/` | 只读巡检、DUP/OFDMA/打孔取证、F01–F10 矩阵运行器、发布审计；依赖 Python 3 标准库 |
-| `tests/` | 主机侧离线测试（406 项），含 C 夹具、Java LSPosed 夹具与 shell 契约测试 |
+| `tests/` | 主机侧离线测试（447 项，按环境跳过缺失依赖的项目），含 C 夹具、Java LSPosed 夹具与 shell 契约测试 |
 | `native/` | 原生夹具源码：恢复事务、netdev、mlo-gate、hostapd、TWT 桥 |
 | `modules/` | 6 个 KernelSU / LSPosed 模块源码与可复现构建脚本 |
 | `docs/` | 精选研究记录 41 篇：能力台账、门禁分析、逐项验证与部署/构建说明 |
@@ -70,7 +80,7 @@ python3 tools/inspect_mt6639.py --adb /absolute/path/to/adb \
 
 ## Release 构件
 
-`v0.1.0-pre` 附五个当前候选（非稳定版，未完成全部验收）：
+[上游 `v0.1.0-pre`](https://github.com/Hi-Jiajun/mt6639-wifi7-dijun/releases/tag/v0.1.0-pre) 附五个历史候选（非稳定版，未完成全部验收）：
 
 | 构件 | 版本 | SHA-256（同时见 `release/SHA256SUMS`） |
 | --- | --- | --- |

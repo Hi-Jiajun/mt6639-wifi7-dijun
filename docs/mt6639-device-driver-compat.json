@@ -1,0 +1,183 @@
+{
+  "scope": "Offline comparison of user-supplied driver against OS4 stable reference; no device or wireless operation.",
+  "reference_sha256": "1822e0f1e5ea4bae7fa2810bda0d775adc640efc733a045ca68694a2b5f8c342",
+  "device_sha256": "1f962c076c38c1a9e24ab7127427a1835d860aed6cb1d051a8e07b068771ac96",
+  "config_sha256": "e4dcd846f31077864932b499d462cfd6a8ca1befc6386f502813e0ba053cc154",
+  "kernel_release": "6.18.21-android17-5-g284297031c53-abogki553682993-4k",
+  "driver_size": 8602552,
+  "text": {
+    "size": 2765664,
+    "sha256": "a0b933a675a0ac9f1b7c7a1edd774b06dc8e9d7aff2af4599aa3591ba3da5047",
+    "bytes_equal": true
+  },
+  "changed_sections": [
+    {
+      "name": ".rodata",
+      "offset": 120888,
+      "size": 828368,
+      "changed_bytes": 135562
+    },
+    {
+      "name": ".rela.text",
+      "offset": 4133400,
+      "size": 3319488,
+      "changed_bytes": 12230
+    },
+    {
+      "name": ".rela.rodata",
+      "offset": 7452888,
+      "size": 34416,
+      "changed_bytes": 183
+    },
+    {
+      "name": ".rela.codetag.alloc_tags",
+      "offset": 7692584,
+      "size": 35280,
+      "changed_bytes": 143
+    },
+    {
+      "name": ".rela.data",
+      "offset": 7747640,
+      "size": 57840,
+      "changed_bytes": 148
+    },
+    {
+      "name": ".rela__bug_table",
+      "offset": 7805480,
+      "size": 8832,
+      "changed_bytes": 5
+    },
+    {
+      "name": ".note.gnu.build-id",
+      "offset": 4133328,
+      "size": 36,
+      "changed_bytes": 20
+    },
+    {
+      "name": ".symtab",
+      "offset": 7814600,
+      "size": 577488,
+      "changed_bytes": 31
+    }
+  ],
+  "function_comparison": {
+    "wlanCfgInit": {
+      "instructions_equal": true,
+      "relocations_equal": true,
+      "size": 280,
+      "relocation_count": 11,
+      "bytes_sha256": "9e974ee48f28033cee2bcc11678508f1be64adc91666f6e6da5ca4b5d2c3990e"
+    },
+    "wlanCfgParse": {
+      "instructions_equal": true,
+      "relocations_equal": true,
+      "size": 2520,
+      "relocation_count": 132,
+      "bytes_sha256": "95016e7cfe7e654f06f49fbf8f6785f50986283a3bb920fb243a3f963e824821"
+    },
+    "wlanCfgGetUint32": {
+      "instructions_equal": true,
+      "relocations_equal": true,
+      "size": 336,
+      "relocation_count": 15,
+      "bytes_sha256": "216fcacd70ff7e38e3f0a9fd2b0162f62c52c9e457f03b482ca8dd7d0baba7f0"
+    },
+    "wlanGetConfig": {
+      "instructions_equal": true,
+      "relocations_equal": true,
+      "size": 216,
+      "relocation_count": 10,
+      "bytes_sha256": "3a43b08bbd40adcb18747bed40baafb79e6694f04b8b67712463b8777aa2e447"
+    },
+    "wlanGetParseConfig": {
+      "instructions_equal": true,
+      "relocations_equal": true,
+      "size": 216,
+      "relocation_count": 10,
+      "bytes_sha256": "569d83354c86ee95d803d6afd06b71d296381b071a522a05c4fa53af978be9e9"
+    },
+    "nicCfgChipCap6GCap": {
+      "instructions_equal": true,
+      "relocations_equal": true,
+      "size": 192,
+      "relocation_count": 13,
+      "bytes_sha256": "0046cd5ca6be6066e39c66367683da3c8bdaa54f5f8bcda4b700d7639897ad36"
+    },
+    "wlanProbe": {
+      "instructions_equal": true,
+      "relocations_equal": true,
+      "size": 1892,
+      "relocation_count": 115,
+      "bytes_sha256": "94ecc5ddc1c599e37167130ecef80b04a6348ac3719cd6e1aa73156ce481f2b2"
+    },
+    "wlanRemove": {
+      "instructions_equal": true,
+      "relocations_equal": true,
+      "size": 1440,
+      "relocation_count": 142,
+      "bytes_sha256": "8acb8eba570ab924fcfbb57baf6ad46692c3b705de27a1787e1d5f84ae6ab6a3"
+    },
+    "wlanFuncOn": {
+      "instructions_equal": true,
+      "relocations_equal": true,
+      "size": 536,
+      "relocation_count": 42,
+      "bytes_sha256": "73e242588b796d0e0532015b9f0572b383f3db7b5465b9eba0325705700bf442"
+    },
+    "wlanFuncOff": {
+      "instructions_equal": true,
+      "relocations_equal": true,
+      "size": 428,
+      "relocation_count": 30,
+      "bytes_sha256": "9dae88f88741a8530bc0207128c25ae40531306815fffe7102e72145907ceb90"
+    },
+    "wlanFuncOnImpl": {
+      "instructions_equal": true,
+      "relocations_equal": true,
+      "size": 388,
+      "relocation_count": 24,
+      "bytes_sha256": "3ab2eda99a8e34bc7550dc3a223f6b9e7618bba2f53f97742b31282849d7f52b"
+    },
+    "wlanFuncOffImpl": {
+      "instructions_equal": true,
+      "relocations_equal": true,
+      "size": 324,
+      "relocation_count": 17,
+      "bytes_sha256": "9d48ba8d7f8587f2680871accd1a96c5c75c147302464468f1430800201ef813"
+    },
+    "kalRequestFirmware": {
+      "instructions_equal": true,
+      "relocations_equal": true,
+      "size": 480,
+      "relocation_count": 25,
+      "bytes_sha256": "855ada3f6d38f492dde95046df99ff99c42f62ced329c6ddddb6be4f05a35033"
+    },
+    "rlmDomainIsLegalChannel": {
+      "instructions_equal": true,
+      "relocations_equal": true,
+      "size": 484,
+      "relocation_count": 19,
+      "bytes_sha256": "5c8a80eeaac1f07615a1ea181d0ebd0c54da8a231e3c547290e3fb6f6370852e"
+    },
+    "wlanInitFeatureOptionImpl": {
+      "instructions_equal": true,
+      "relocations_equal": true,
+      "size": 65048,
+      "relocation_count": 5654,
+      "bytes_sha256": "4cabad092583ba3c0952be336aa7dfbfd2b2c17e03fc238026a93ac92e6a2e66"
+    },
+    "wlanLoadDefaultCustomerSetting": {
+      "instructions_equal": true,
+      "relocations_equal": true,
+      "size": 244,
+      "relocation_count": 26,
+      "bytes_sha256": "0689392f25f2a753932aca2b365451c92de12396e424985f1617a93bd3d6eef3"
+    }
+  },
+  "method": "Compare ELF64 little-endian section bytes and metadata; for named functions compare instruction bytes and normalized RELA tuples (function offset, relocation type, symbol name, addend; resolve .rodata section-symbol addends to NUL-terminated strings).",
+  "limits": [
+    "Not whole-driver relocation or read-only-data equivalence.",
+    "Not proof of regulatory, firmware, ABI, physical channel registration, association, throughput or restoration behavior.",
+    "No exact installed OTA version inferred from the kernel release."
+  ]
+}

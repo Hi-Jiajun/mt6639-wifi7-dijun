@@ -4,10 +4,11 @@ set -eu
 [ "$#" = 1 ] || { echo 'usage: build_6g_module.sh OUTPUT_ZIP' >&2; exit 64; }
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 SOURCE=$ROOT/modules/mt6639-6g
+NATIVE=${MT6639_MOUNT_TXN:-$SOURCE/bin/mount-txn}
 OUT=$1
 [ ! -e "$OUT" ] || { echo 'REJECT output_exists' >&2; exit 73; }
-[ -f "$SOURCE/module.prop" ] && [ -f "$SOURCE/bin/mount-txn" ] || exit 66
-[ "$(sha256sum "$SOURCE/bin/mount-txn" | awk '{print $1}')" = \
+[ -f "$SOURCE/module.prop" ] && [ -f "$NATIVE" ] || exit 66
+[ "$(sha256sum "$NATIVE" | awk '{print $1}')" = \
     8447612d22b010bcf1333a649b58917e361cfc27b22c4b11665d27ed5102768b ] ||
     { echo 'REJECT mount_txn_hash' >&2; exit 69; }
 
@@ -19,6 +20,8 @@ TMP=$(mktemp -d "$PARENT/.mt6639-6g.XXXXXX")
 trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -r "$TMP"' EXIT HUP INT TERM
 mkdir "$TMP/module"
 cp -R "$SOURCE"/. "$TMP/module/"
+cp "$NATIVE" "$TMP/module/bin/mount-txn"
+cp "$SOURCE/module.prop" "$TMP/module/module.prop.template"
 
 chmod 0755 "$TMP/module/action.sh" "$TMP/module/service.sh" \
     "$TMP/module/uninstall.sh" "$TMP/module/bin/apply.sh" \
@@ -26,8 +29,10 @@ chmod 0755 "$TMP/module/action.sh" "$TMP/module/service.sh" \
     "$TMP/module/bin/lib.sh" "$TMP/module/bin/mount-txn" \
     "$TMP/module/bin/native.sh" "$TMP/module/bin/post-reboot-check.sh" \
     "$TMP/module/bin/refresh-6g.sh" "$TMP/module/bin/restore.sh" \
-    "$TMP/module/bin/softreboot-watch.sh"
-chmod 0644 "$TMP/module/module.prop" "$TMP/module/config.conf" \
+    "$TMP/module/bin/softreboot-watch.sh" "$TMP/module/bin/status-card.sh" \
+    "$TMP/module/bin/verify-module.sh" "$TMP/module/bin/compat.sh"
+chmod 0644 "$TMP/module/module.prop" "$TMP/module/module.prop.template" "$TMP/module/config.conf" \
+    "$TMP/module/compatibility.conf" \
     "$TMP/module/README.md" "$TMP/module/src/nl80211-wiphy-read.c"
 
 if find "$TMP/module" -type l | grep -q .; then
@@ -42,7 +47,7 @@ fi
 
 (
     cd "$TMP/module"
-    find . -type f ! -name SHA256SUMS -print | LC_ALL=C sort |
+    find . -type f ! -name SHA256SUMS ! -name module.prop -print | LC_ALL=C sort |
         sed 's#^\./##' | xargs sha256sum > SHA256SUMS
 )
 source_tree_sha256=$(

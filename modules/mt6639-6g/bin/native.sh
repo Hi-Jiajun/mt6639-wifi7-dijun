@@ -125,6 +125,8 @@ cmd_inspect() {
 
 cmd_status() {
     echo "boot=$(boot_id)"
+    echo "compatibility_profile=$COMPAT_PROFILE"
+    echo "compatibility_error=${COMPAT_ERROR:-none}"
     enabled=$(grep '^ENABLE_6G=' "$MODDIR/config.conf" 2>/dev/null | head -1 |
               sed 's/.*:-\([01]\).*/\1/; s/^ENABLE_6G=//')
     echo "enabled_config=${enabled:-unknown}"
@@ -160,6 +162,7 @@ cmd_apply() {
     [ "$rc" = 0 ] || return "$rc"
     require_identity || return 3
     require_unmounted || return 3
+    log "native compatibility profile=$COMPAT_PROFILE kernel=$KERNEL_GUARD"
     # Do not create authority for a disabled/not-yet-ready Wi-Fi service.
     preflight=$("$NATIVE" inspect-wlan 2>&1) || { log 'REJECT wlan_not_ready'; return 3; }
     case "$preflight" in
