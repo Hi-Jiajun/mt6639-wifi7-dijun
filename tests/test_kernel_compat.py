@@ -469,9 +469,14 @@ exit 0
             "uname": f'#!/bin/sh\necho "{row[2]}"\n',
             "getprop": f'#!/bin/sh\necho "{row[1]}"\n',
             "chcon": "#!/bin/sh\nexit 0\n",
-            "sleep": "#!/bin/sh\nexit 0\n",
+            "sleep": '''#!/bin/sh
+case "${1:-1}" in
+    1) exec /bin/sleep 0.02 ;;
+    *) exit 0 ;;
+esac
+''',
             "ip": "#!/bin/sh\necho '2: wlan0    inet 198.51.100.50/24 scope global wlan0'\n",
-            "mount": '#!/bin/sh\ncp "$2" "$3" && printf "9 1 0:1 /c %s rw - tmpfs tmpfs rw\\n" "$3" > "$FIXTURE_MOUNTS"\n',
+            "mount": '#!/bin/sh\nif [ "$1" = --bind ]; then cp "$2" "$3" && printf "9 1 0:1 /c %s rw - tmpfs tmpfs rw\\n" "$3" > "$FIXTURE_MOUNTS"; fi\n',
             "umount": '#!/bin/sh\nt=${1:-}; [ "$t" != -l ] || t=$2; cp "$FIXTURE_STOCK_CFG" "$t" && : > "$FIXTURE_MOUNTS"\n',
             "runcon": '''#!/bin/sh
 cmd=$4
@@ -500,10 +505,12 @@ exit 0
         env["FIXTURE_COUNTRY"] = "TW"
         env["FIXTURE_OVERRIDE"] = "TW"
         wifi_log.write_text("")
-        self.assertEqual(fixture.control("enable").returncode, 0)
+        en1 = fixture.control("enable")
+        self.assertEqual(en1.returncode, 0, en1.stdout)
         tx_tw = Path((fixture.work / "active_tx").read_text().strip())
         self.assertIn("target_country=JP", (tx_tw / "baseline.env").read_text())
-        self.assertEqual(fixture.control("disable").returncode, 0)
+        dis1 = fixture.control("disable")
+        self.assertEqual(dis1.returncode, 0, dis1.stdout)
         calls_tw = wifi_log.read_text()
         self.assertIn("force-country-code' 'enabled' 'JP'", calls_tw)
         self.assertIn("force-country-code' 'enabled' 'TW'", calls_tw)
@@ -514,8 +521,10 @@ exit 0
         env["FIXTURE_COUNTRY"] = "00"
         env["FIXTURE_OVERRIDE"] = "null"
         wifi_log.write_text("")
-        self.assertEqual(fixture.control("enable").returncode, 0)
-        self.assertEqual(fixture.control("disable").returncode, 0)
+        en2 = fixture.control("enable")
+        self.assertEqual(en2.returncode, 0, en2.stdout)
+        dis2 = fixture.control("disable")
+        self.assertEqual(dis2.returncode, 0, dis2.stdout)
         calls_00 = wifi_log.read_text()
         self.assertIn("force-country-code' 'enabled' 'US'", calls_00)
         self.assertIn("force-country-code' 'disabled'", calls_00)
@@ -524,10 +533,12 @@ exit 0
         env["FIXTURE_COUNTRY"] = "US"
         env["FIXTURE_OVERRIDE"] = "null"
         wifi_log.write_text("")
-        self.assertEqual(fixture.control("enable").returncode, 0)
+        en3 = fixture.control("enable")
+        self.assertEqual(en3.returncode, 0, en3.stdout)
         tx_us = Path((fixture.work / "active_tx").read_text().strip())
         self.assertIn("country_mutated=0", (tx_us / "baseline.env").read_text())
-        self.assertEqual(fixture.control("disable").returncode, 0)
+        dis3 = fixture.control("disable")
+        self.assertEqual(dis3.returncode, 0, dis3.stdout)
         self.assertNotIn("force-country-code", wifi_log.read_text())
 
 
