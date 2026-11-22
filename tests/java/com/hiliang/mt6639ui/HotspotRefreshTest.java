@@ -74,7 +74,43 @@ public final class HotspotRefreshTest {
         pendingSubmission();
         pendingStartAndC02();
         pickerOffersBandsByReadiness();
+        v4PureTabletLocalHotspot();
         System.out.println("RESULT=PASS hotspot_refresh states=lifecycle+idle-starting-active-stopping-idle+unavailable pages=2");
+    }
+
+    private static void v4PureTabletLocalHotspot() throws Throwable {
+        Fragment fragment = new MiuiFragment();
+        Files.writeString(snapshotPath, "schema=mt6639-hotspot-status-v4\nstate=idle"
+                + "\nband=none\nwidth=none\nboot=" + boot
+                + "\nap_key=1\nreconnect_6g=0\nreconnect_2g=0\nenforcing=1\n"
+                + "ready_6g=1\nready_5g=1\nready_2g=1\nlocal_ready=1\n", StandardCharsets.US_ASCII);
+        XposedHelpers.fireAfter(fragment, "onResume");
+        check(!fragment.preference(C02).visible, "v4 without reconnect_6g hides lab C02 preference");
+        Preference start = fragment.preference(START);
+        check(start.enabled, "v4 pure tablet start is enabled");
+        Method install = MainHook.class.getDeclaredMethod("installHotspotStartPicker",
+                Object.class, ClassLoader.class, Context.class);
+        install.setAccessible(true);
+        install.invoke(null, start, HotspotRefreshTest.class.getClassLoader(), null);
+        HotspotRequestWriter.accept = true;
+        start.listener.onPreferenceClick(start);
+        CharSequence[] items = AlertDialog.items();
+        int localIdx = -1;
+        for (int index = 0; index < items.length; index++) {
+            if (items[index].toString().startsWith("本地直连 6 GHz")) {
+                localIdx = index;
+                break;
+            }
+        }
+        check(localIdx >= 0, "v4 picker offers local hotspot actions when local_ready=1");
+        AlertDialog.confirm(localIdx);
+        check("start-local-6g-20".equals(HotspotRequestWriter.lastOperation),
+                "picker submits start-local-6g-20");
+        writeState("starting");
+        Handler.advanceBy(2000);
+        HotspotRequestWriter.accept = false;
+        XposedHelpers.fireAfter(fragment, "onDestroy");
+        System.out.println("PASS v4 pure tablet picker hides C02 and offers start-local-*");
     }
 
     private static void pickerOffersBandsByReadiness() throws Throwable {

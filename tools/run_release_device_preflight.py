@@ -86,7 +86,10 @@ def validate_results(tsv: str, rc: int, previous: str | None,
         return "boot_id_missing_or_ambiguous", None, failed
     keys = [r[1] for r in rows if len(r) == 4 and r[0] in {"PASS", "FAIL", "WARN"}]
     if (any(len(r) != 4 or not r[2] for r in rows)
-            or any(r[0] == "WARN" and r[1] not in {"kernelsu", "ui_lsposed", "concurrency_gate"}
+            or any(r[0] == "WARN" and r[1] not in {
+                "kernelsu", "kernelsu_manager", "xringroot_tool",
+                "wifi_home_net_6g", "ui_lsposed", "concurrency_gate",
+            }
                    for r in rows if len(r) == 4)
             or len(rows) != len(REQUIRED_CHECKS) + 1
             or set(keys) != REQUIRED_CHECKS or len(keys) != len(REQUIRED_CHECKS)):

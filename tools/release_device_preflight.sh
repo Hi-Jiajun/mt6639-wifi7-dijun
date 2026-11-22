@@ -37,18 +37,52 @@ root_context=$(cat /proc/self/attr/current 2>/dev/null | tr -d '\000')
     result PASS root_context "$root_context" ||
     result FAIL root_context "${root_context:-unknown}" "expected_$EXPECTED_ROOT_CONTEXT"
 result INFO boot "$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)"
+dev=$(getprop ro.product.device)
 fp=$(getprop ro.build.fingerprint)
-[ "$fp" = "$EXPECTED_FP" ] && result PASS fingerprint exact || result FAIL fingerprint "$fp" mismatch
+case "$dev" in
+    dijun)
+        [ "$fp" = "$EXPECTED_FP" ] && result PASS fingerprint exact || result FAIL fingerprint "$fp" mismatch ;;
+    violin|jinghu)
+        case "$fp" in
+            Xiaomi/"$dev"/"$dev":*) result PASS fingerprint "$dev" ;;
+            *) result FAIL fingerprint "$fp" "expected_Xiaomi_${dev}" ;;
+        esac ;;
+    *)
+        result FAIL fingerprint "$fp" "unsupported_device_${dev}" ;;
+esac
 
 if manager_path=$(pm path me.weishu.kernelsu 2>/dev/null |
         sed -n 's/^package://p' | head -1) &&
     [ -n "$manager_path" ] && [ -f "$manager_path" ]; then
     manager_version=$(dumpsys package me.weishu.kernelsu 2>/dev/null |
         sed -n 's/^[[:space:]]*versionName=//p' | head -1)
-    [ "$manager_version" = "$EXPECTED_KSU_MANAGER_VERSION" ] &&
-        result PASS kernelsu_manager "$manager_version" ||
+    if [ "$manager_version" = "$EXPECTED_KSU_MANAGER_VERSION" ]; then
+        result PASS kernelsu_manager "$manager_version"
+    elif [ "$dev" != dijun ]; then
+        result WARN kernelsu_manager "${manager_version:-unknown}" \
+            "tablet_version_differs_from_$EXPECTED_KSU_MANAGER_VERSION"
+    else
         result FAIL kernelsu_manager "${manager_version:-unknown}" \
             "expected_$EXPECTED_KSU_MANAGER_VERSION"
+    fi
+elif [ "$dev" != dijun ]; then
+    fork_pkg=""
+    fork_ver=""
+    for pkg in com.rifsxd.ksunext com.sukisu.ultra; do
+        if pm path "$pkg" >/dev/null 2>&1; then
+            fork_pkg=$pkg
+            fork_ver=$(dumpsys package "$pkg" 2>/dev/null |
+                sed -n 's/^[[:space:]]*versionName=//p' | head -1)
+            break
+        fi
+    done
+    if [ -n "$fork_pkg" ]; then
+        result WARN kernelsu_manager "${fork_pkg}:${fork_ver:-unknown}" fork_manager_detected
+    elif [ -x /data/adb/ksud ]; then
+        result WARN kernelsu_manager ksud_only fork_or_headless_ksu
+    else
+        result FAIL kernelsu_manager missing "expected_$EXPECTED_KSU_MANAGER_VERSION"
+    fi
 else
     result FAIL kernelsu_manager missing "expected_$EXPECTED_KSU_MANAGER_VERSION"
 fi
@@ -98,11 +132,13 @@ if xringroot_path=$(pm path com.hiliang.xringroot 2>/dev/null |
     [ "$xringroot_sha" = "$EXPECTED_XRINGROOT_SHA" ] &&
         result PASS xringroot_tool "$xringroot_short" ||
         result FAIL xringroot_tool "$xringroot_short" "expected_$EXPECTED_XRINGROOT_SHORT"
+elif [ "$dev" != dijun ]; then
+    result WARN xringroot_tool optional_on_tablet not_required
 else
     result FAIL xringroot_tool missing "expected_$EXPECTED_XRINGROOT_SHORT"
 fi
 
-for pair in 'mt6639-6g:v0.3.0' 'mt6639-hotspot:v0.2.22' 'mt6639-bt:v0.1.2'; do
+for pair in 'mt6639-6g:v0.4.1' 'mt6639-hotspot:v0.3.1' 'mt6639-bt:v0.2.0'; do
     id=${pair%%:*}
     expected=${pair#*:}
     actual=$(module_version "$id")
@@ -142,6 +178,8 @@ if timeout 8 cmd wifi status > "$D/wifi.status" 2>&1 &&
     grep -Fq 'Supplicant state: COMPLETED' "$D/wifi.status" &&
     grep -Fq 'Frequency: 6135MHz' "$D/wifi.status"; then
     result PASS wifi_home_net_6g completed_6135
+elif [ "$dev" != dijun ]; then
+    result WARN wifi_home_net_6g lab_ssid_not_connected optional_on_tablet
 else
     result FAIL wifi_home_net_6g not_ready
 fi
@@ -157,7 +195,7 @@ fi
 if pm path com.hiliang.mt6639ui > "$D/ui.path" 2>&1; then
     value=$(dumpsys package com.hiliang.mt6639ui 2>/dev/null |
         sed -n 's/^[[:space:]]*versionName=//p' | head -1)
-    [ "$value" = 0.2.7 ] && result PASS ui_lsposed "$value" || result WARN ui_lsposed "${value:-unknown}" expected_0.2.7
+    [ "$value" = 0.3.0 ] && result PASS ui_lsposed "$value" || result WARN ui_lsposed "${value:-unknown}" expected_0.3.0
 else
     result WARN ui_lsposed missing
 fi

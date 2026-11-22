@@ -145,5 +145,17 @@ class FailedStartCloseoutTests(unittest.TestCase):
         self.assertIn("start_no_effect=1", block)
 
 
+        self.assertEqual(
+            set_lines := [
+                "tether.scope", "LocalHotspotState", "sta_band_incompatible_with_5g",
+                "compat_hash_ok", "wired|local",
+            ],
+            set_lines,
+        )
+        for token in set_lines:
+            self.assertIn(token, SOURCE)
+        self.assertIn("start-local", self.CONTROL)
+
+
 if __name__ == "__main__":
     unittest.main()

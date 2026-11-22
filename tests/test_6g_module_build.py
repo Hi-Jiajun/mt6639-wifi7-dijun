@@ -11,8 +11,8 @@ import zipfile
 REPO = Path(__file__).resolve().parents[1]
 BUILDER = REPO / "tools/build_6g_module.sh"
 MODULE = REPO / "modules/mt6639-6g"
-EXPECTED_HASH = "1d73ed6815e642a65aac1229b8c98ad5bbfee78d140a989cb0ec8725c269dba9"
-SHIPPED = REPO / "release/artifacts/mt6639-6g-v0.3.0.zip"
+EXPECTED_HASH = "4358a6cfe723966568b8a0c47b803076284cdebd05ca7246e18862bd8f02a23b"
+SHIPPED = REPO / "release/artifacts/mt6639-6g-v0.4.1.zip"
 NATIVE = Path(os.environ.get("MT6639_MOUNT_TXN", MODULE / "bin/mount-txn"))
 
 
@@ -69,16 +69,17 @@ class SixGModuleBuildTests(unittest.TestCase):
                     for n in archive.namelist() if not n.endswith("/")
                 }
             for required in (
-                "module.prop", "module.prop.template", "action.sh", "service.sh", "uninstall.sh",
-                "config.conf", "compatibility.conf", "bin/compat.sh", "bin/mount-txn", "bin/native.sh",
+                "module.prop", "module.prop.template", "customize.sh", "action.sh", "service.sh", "uninstall.sh",
+                "config.conf", "compatibility.conf", "bin/compat.sh", "bin/legacy-66-txn.sh",
+                "bin/mount-txn", "bin/native.sh",
                 "bin/restore.sh", "bin/post-reboot-check.sh",
                 "bin/refresh-6g.sh", "bin/status-card.sh", "bin/verify-module.sh",
                 "src/nl80211-wiphy-read.c", "SHA256SUMS", "ASSET-PROVENANCE.txt",
             ):
                 self.assertIn(required, content)
             prop = content["module.prop"].decode()
-            self.assertIn("version=v0.3.0", prop)
-            self.assertIn("versionCode=22", prop)
+            self.assertIn("version=v0.4.1", prop)
+            self.assertIn("versionCode=24", prop)
             self.assertEqual(content["module.prop"], content["module.prop.template"])
             sums = content["SHA256SUMS"].decode()
             self.assertIn("bin/native.sh", sums)
@@ -86,6 +87,8 @@ class SixGModuleBuildTests(unittest.TestCase):
             self.assertIn("bin/refresh-6g.sh", sums)
             paths = [line.split(None, 1)[1] for line in sums.splitlines()]
             self.assertNotIn("module.prop", paths)
+            self.assertNotIn("customize.sh", paths)
+            self.assertNotIn("README.md", paths)
             self.assertIn("module.prop.template", paths)
             provenance = content["ASSET-PROVENANCE.txt"].decode()
             self.assertIn("source_tree_sha256=", provenance)

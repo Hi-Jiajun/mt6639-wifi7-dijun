@@ -182,6 +182,8 @@ validate_request() {
     case "$op:$band:$width" in
         start:6g:20|start:6g:40|start:6g:80|start:6g:160|start:6g:320|\
         start:5g:20|start:5g:40|start:5g:80|start:2g:20|\
+        start-local:6g:20|start-local:6g:40|start-local:6g:80|start-local:6g:160|start-local:6g:320|\
+        start-local:5g:20|start-local:5g:40|start-local:5g:80|start-local:2g:20|\
         c02-24g:6g:20|stop:6g:20) ;;
         *) return 1 ;;
     esac
@@ -246,6 +248,10 @@ process_one() {
                 sh "$MODDIR/bin/control.sh" "$MODDIR" start "$REQUEST_BAND" "$REQUEST_WIDTH"
                 rc=$?
                 ;;
+            start-local)
+                sh "$MODDIR/bin/control.sh" "$MODDIR" start-local "$REQUEST_BAND" "$REQUEST_WIDTH"
+                rc=$?
+                ;;
             stop)
                 sh "$MODDIR/bin/control.sh" "$MODDIR" stop
                 rc=$?
@@ -265,12 +271,36 @@ process_one() {
     done
     return 1
 }
+refresh_idle_snapshot() {
+    [ ! -e "$WORK/session/task" ] || return 0
+    state_now=$(cat "$WORK/state" 2>/dev/null || printf idle)
+    case "$state_now" in
+        ""|idle) ;;
+        *) return 0 ;;
+    esac
+    exec 9>"$WORK/action.lock" || return 0
+    if flock -n 9 9>&9 2>/dev/null; then
+        sh "$MODDIR/bin/status_snapshot.sh" "$MODDIR" init 9>&- >/dev/null 2>&1 || true
+    fi
+    exec 9>&-
+}
+
 run_loop() {
+    refresh_sec=${MT6639_SNAPSHOT_REFRESH_SECONDS:-15}
+    case "$refresh_sec" in ''|*[!0-9]*) refresh_sec=15 ;; esac
+    tick=0
     while :; do
         [ -d "$MODDIR" ] && [ ! -L "$MODDIR" ] &&
             [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ] || exit 0
-        if process_one; then :; fi
+        if process_one; then
+            tick=0
+        fi
         sleep 1
+        tick=$((tick + 1))
+        if [ "$refresh_sec" -gt 0 ] && [ "$tick" -ge "$refresh_sec" ]; then
+            tick=0
+            refresh_idle_snapshot
+        fi
     done
 }
 

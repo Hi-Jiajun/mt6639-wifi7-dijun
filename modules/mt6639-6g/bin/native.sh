@@ -7,10 +7,38 @@ MODDIR=${1:-${MODDIR:-/data/adb/modules/mt6639-6g}}
 . "$MODDIR/bin/lib.sh"
 
 TXN_ROOT=$WORK/transactions
+LEGACY_66=$MODDIR/bin/legacy-66-txn.sh
 
 die() { code=$1; shift; log "native: $*"; exit "$code"; }
 
+use_legacy_66() {
+    if [ "${MT6639_TEST_MODE:-0}" = 1 ]; then
+        [ "${MT6639_LEGACY_66:-0}" = 1 ] && return 0
+    else
+        case "${KERNEL_GUARD:-}" in
+            6.6.*) return 0 ;;
+        esac
+    fi
+    [ -n "${1:-}" ] && [ -f "$1/legacy-66" ]
+}
+
+exec_backend() {
+    tx_hint=$1
+    shift
+    if use_legacy_66 "$tx_hint"; then
+        [ -f "$LEGACY_66" ] || die 3 "REJECT legacy_66_missing"
+        sh "$LEGACY_66" "$1" "$MODDIR" "${2:-}" "${3:-}"
+        return $?
+    fi
+    need_native
+    "$NATIVE" "$@"
+}
+
 need_native() {
+    if use_legacy_66 "${tx:-}"; then
+        [ -f "$LEGACY_66" ] || die 3 "REJECT legacy_66_missing"
+        return 0
+    fi
     [ -f "$NATIVE" ] || die 3 "REJECT native_missing"
     # KernelSU extraction normalizes packaged files to 0644. Repair only this
     # module-owned executable; an unreadable or wrong image still fails.
@@ -38,9 +66,15 @@ guardian_alive() {
     pid=$(cat "$ACTIVE_PID_FILE" 2>/dev/null)
     case "$pid" in ''|*[!0-9]*) return 1 ;; esac
     [ "$pid" -gt 1 ] && kill -0 "$pid" 2>/dev/null || return 1
+    guardian_args=$(tr '\000' '\n' <"/proc/$pid/cmdline" 2>/dev/null) || return 1
+    if [ -f "$1/legacy-66" ]; then
+        printf '%s\n' "$guardian_args" | grep -Fq "legacy-66-txn.sh" || return 1
+        printf '%s\n' "$guardian_args" | grep -Fxq "guardian" || return 1
+        printf '%s\n' "$guardian_args" | grep -Fxq "$1"
+        return $?
+    fi
     [ "$(readlink "/proc/$pid/exe" 2>/dev/null)" = "$NATIVE" ] || return 1
     # A PID from another transaction using the same binary is not ours.
-    guardian_args=$(tr '\000' '\n' <"/proc/$pid/cmdline" 2>/dev/null) || return 1
     case "$(printf '%s\n' "$guardian_args" | sed -n '2p')" in
         run-wlan|run-wlan-persistent) ;;
         *) return 1 ;;
@@ -118,9 +152,8 @@ json_pid() {
 }
 
 cmd_inspect() {
-    need_native
-    "$NATIVE" inspect
-    "$NATIVE" inspect-wlan
+    exec_backend "" inspect
+    exec_backend "" inspect-wlan
 }
 
 cmd_status() {
@@ -160,17 +193,19 @@ cmd_apply() {
     rc=$?
     [ "$rc" != 10 ] || return 0
     [ "$rc" = 0 ] || return "$rc"
+    target_country=$(read_target_country) || {
+        log 'REJECT invalid_target_country'; return 3; }
     require_identity || return 3
     require_unmounted || return 3
-    log "native compatibility profile=$COMPAT_PROFILE kernel=$KERNEL_GUARD"
+    log "native compatibility profile=$COMPAT_PROFILE kernel=$KERNEL_GUARD target_country=$target_country"
     # Do not create authority for a disabled/not-yet-ready Wi-Fi service.
-    preflight=$("$NATIVE" inspect-wlan 2>&1) || { log 'REJECT wlan_not_ready'; return 3; }
+    preflight=$(exec_backend "" inspect-wlan 2>&1) || { log 'REJECT wlan_not_ready'; return 3; }
     case "$preflight" in
         *'"wifi":1,'*) ;;
         *) log 'REJECT wifi_must_be_enabled'; return 3 ;;
     esac
     if [ "${RUN_MODE:-persistent}" = persistent ]; then
-        module_preflight=$("$NATIVE" inspect-module 2>&1) || {
+        module_preflight=$(exec_backend "" inspect-module 2>&1) || {
             log 'REJECT module_control_not_ready'; return 3; }
         case "$module_preflight" in
             *'"status":"module_control_available"'*) ;;
@@ -200,9 +235,9 @@ cmd_apply() {
     write_active "$tx" || return 3
 
     if [ "${RUN_MODE:-persistent}" = persistent ]; then
-        out=$("$NATIVE" run-wlan-persistent "$tx" 2>&1)
+        out=$(MT6639_TARGET_COUNTRY=$target_country exec_backend "$tx" run-wlan-persistent "$tx" 2>&1)
     else
-        out=$("$NATIVE" run-wlan "$tx" 900000 2>&1)
+        out=$(MT6639_TARGET_COUNTRY=$target_country exec_backend "$tx" run-wlan "$tx" 900000 2>&1)
     fi
     rc=$?
     printf '%s\n' "$out" >>"$tx/apply-wrapper.log"
@@ -234,7 +269,7 @@ wait_terminal() {
 native_recover_retry() {
     attempt=0
     while :; do
-        out=$("$NATIVE" recover "$tx" 2>&1)
+        out=$(exec_backend "$tx" recover "$tx" 2>&1)
         rc=$?
         [ "$rc" = 3 ] && [ "$out" = '{"status":"busy_or_invalid_lock"}' ] &&
             ! guardian_alive "$tx" || break
@@ -282,7 +317,7 @@ cmd_restore() {
         [ "$(cat "$tx/wrapper-boot" 2>/dev/null)" = "$(boot_id)" ] || {
         log 'REJECT missing_or_cross_boot_authority'; return 90; }
     if guardian_alive "$tx"; then
-        "$NATIVE" cancel "$tx" >>"$tx/restore-wrapper.log" 2>&1 || {
+        exec_backend "$tx" cancel "$tx" >>"$tx/restore-wrapper.log" 2>&1 || {
             echo restore_failed >"$STATE"; return 90; }
     fi
     wait_terminal "$tx" || {
@@ -321,7 +356,7 @@ cmd_restore() {
 }
 
 case "${2:-}" in
-    ready) need_native; "$NATIVE" inspect-wlan ;;
+    ready) exec_backend "" inspect-wlan ;;
     inspect) cmd_inspect ;;
     status) cmd_status ;;
     apply) cmd_apply ;;

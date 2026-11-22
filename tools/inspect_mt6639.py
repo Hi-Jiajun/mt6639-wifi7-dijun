@@ -22,6 +22,8 @@ import time
 CFG_CANDIDATES = ("/odm/firmware/wifi.cfg", "/odm/etc/wifi/wifi.cfg",
                   "/vendor/etc/wifi/wifi.cfg", "/vendor/firmware/wifi.cfg")
 KO_PATH = "/vendor/lib/modules/wlan_drv_gen4m_eap_6639.ko"
+KO_DLKM_PATH = "/vendor_dlkm/lib/modules/wlan_drv_gen4m_eap_6639.ko"
+TETHERING_JAR_PATH = "/apex/com.android.tethering/javalib/framework-tethering.jar"
 MAX_TIMEOUT = 120.0
 HELPER_ROOTS = ("/data/local/tmp/", "/data/adb/")
 HELPER_RE = re.compile(r"^/data/(?:local/tmp|adb)/[A-Za-z0-9._/-]+$")
@@ -48,6 +50,9 @@ def build_probes(helper):
         p("id", "id"), p("prop_model", "getprop ro.product.model"),
         p("prop_device", "getprop ro.product.device"),
         p("prop_fingerprint", "getprop ro.build.fingerprint"),
+        p("prop_sdk", "getprop ro.build.version.sdk"),
+        p("prop_mi_os", "getprop ro.mi.os.version.name"),
+        p("prop_baseband", "getprop gsm.version.baseband"),
         p("prop_security_patch", "getprop ro.build.version.security_patch"),
         p("kernel", "uname -a"), p("boot_hardware", "getprop ro.boot.hardware"),
         p("boot_verified", "getprop ro.boot.verifiedbootstate"),
@@ -63,6 +68,8 @@ def build_probes(helper):
                         "grep -n -i '^DisallowBand6G' " + path, accept=(0, 1)))
     probes += [
         p("ko_sha256", "sha256sum " + KO_PATH),
+        p("ko_dlkm_sha256", "sha256sum " + KO_DLKM_PATH),
+        p("tethering_jar_sha256", "sha256sum " + TETHERING_JAR_PATH),
         p("wifi_status", binder("cmd wifi status")),
         p("wifi_country_code", binder("cmd wifi get-country-code")),
         p("wifi_allowed_channel_b8", binder("cmd wifi get-allowed-channel -b 8")),
@@ -83,6 +90,9 @@ def build_probes(helper):
         p("ksu_modules", "ls -1 /data/adb/modules"),
         p("bt_state", binder("settings get global bluetooth_on")),
         p("bt_service", "getprop init.svc.bluetooth"),
+        p("bt_leaudio_offload", "getprop ro.bluetooth.leaudio_offload.supported"),
+        p("bt_leaudio_disabled", "getprop persist.bluetooth.leaudio_offload.disabled"),
+        p("bt_apk_sha256", "sha256sum /apex/com.android.bt/app/*/Bluetooth.apk /apex/com.android.bt/app/Bluetooth.apk", accept=(0, 1)),
     ]
     if helper:
         probes.append(p("wiphy_helper", helper))
@@ -118,12 +128,72 @@ def _as_text(value):
     return value
 
 
-def run_probe(adb, serial, probe, timeout, probes_dir):
+def load_ssh_command(path):
+    """Validate pinned non-interactive OpenSSH argv JSON file."""
+    import stat as _stat
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as handle:
+            info = os.fstat(handle.fileno())
+            if not _stat.S_ISREG(info.st_mode) or info.st_size > 16384:
+                fail("invalid --ssh-command-json configuration")
+            raw = handle.read(16385)
+        if len(raw) > 16384:
+            fail("invalid --ssh-command-json configuration")
+        argv = json.loads(raw)
+    except (OSError, ValueError, UnicodeError):
+        fail("invalid --ssh-command-json configuration")
+    if (not isinstance(argv, list) or not 2 <= len(argv) <= 32
+            or any(not isinstance(v, str) or not v or len(v) > 4096
+                   or any(c in v for c in "\x00\r\n") for v in argv)):
+        fail("invalid --ssh-command-json argv")
+    executable = argv[0]
+    if (not os.path.isabs(executable) or os.path.basename(executable) != "ssh"
+            or not os.path.isfile(executable) or not os.access(executable, os.X_OK)):
+        fail("invalid ssh executable in --ssh-command-json")
+    options = {}
+    i = 1
+    while i < len(argv) - 1:
+        flag = argv[i]
+        if flag not in ("-F", "-o", "-i", "-p") or i + 1 >= len(argv) - 1:
+            fail("unsupported ssh flag in --ssh-command-json")
+        value = argv[i + 1]
+        key = flag
+        if flag == "-o":
+            key, sep, value = value.partition("=")
+            if not sep:
+                fail("malformed -o option in --ssh-command-json")
+        if key in options:
+            fail("duplicate ssh option in --ssh-command-json")
+        options[key] = value
+        i += 2
+    required = {"-F", "-i", "-p", "BatchMode", "ConnectTimeout",
+                "StrictHostKeyChecking", "UserKnownHostsFile"}
+    if (set(options) != required or options["-F"] != "/dev/null"
+            or options["BatchMode"] != "yes"
+            or options["StrictHostKeyChecking"] != "yes"
+            or not re.fullmatch(r"[0-9]{1,5}", options["ConnectTimeout"])
+            or not 1 <= int(options["ConnectTimeout"]) <= 60
+            or not re.fullmatch(r"[0-9]{1,5}", options["-p"])
+            or not 1 <= int(options["-p"]) <= 65535
+            or re.match(r"^root@", argv[-1])
+            or not re.fullmatch(r"[a-zA-Z0-9_.-]+@(?:[A-Za-z0-9][A-Za-z0-9.-]*|\[[0-9a-fA-F:]+\])", argv[-1])):
+        fail("invalid pinned SSH options or target in --ssh-command-json")
+    return argv
+
+
+def run_probe(adb, serial, probe, timeout, probes_dir, adb_port=None, ssh_argv=None):
     started = time.monotonic()
     timed_out = False
     exec_err = None
+    if ssh_argv is not None:
+        command = list(ssh_argv) + [f"PATH=/system/bin:/system/xbin:/vendor/bin:/data/adb/ksu/bin:$PATH; {probe['cmd']}"]
+    elif adb_port is not None:
+        command = [adb, "-P", str(adb_port), "-s", serial, "shell", probe["cmd"]]
+    else:
+        command = [adb, "-s", serial, "shell", probe["cmd"]]
     try:
-        done = subprocess.run([adb, "-s", serial, "shell", probe["cmd"]],
+        done = subprocess.run(command,
                               capture_output=True, text=True, errors="replace",
                               timeout=timeout)
         rc, out, err = done.returncode, done.stdout, done.stderr
@@ -198,9 +268,16 @@ def derive(results):
     uname = (_one(text("kernel")) or "").split()
     ns_self, ns_init = _one(text("mount_namespace_self")), _one(text("mount_namespace_init"))
     mountinfo = text("mountinfo").splitlines()
+    sdk_raw = first("prop_sdk")
+    baseband_raw = first("prop_baseband")
+    baseband_st = status("prop_baseband")
+    has_baseband = True if baseband_raw else (False if baseband_st == "empty" else None)
     identity = {
         "model": first("prop_model"), "device": first("prop_device"),
         "fingerprint_sha256_12": _sha12(first("prop_fingerprint")),
+        "sdk_int": int(sdk_raw) if (sdk_raw and sdk_raw.isdigit()) else None,
+        "hyperos_version": first("prop_mi_os"),
+        "has_cellular_baseband": has_baseband,
         "security_patch": first("prop_security_patch"),
         "kernel_release": uname[2] if len(uname) > 2 else (_one(text("kernel")) or None),
         "boot_hardware": first("boot_hardware"), "boot_id": first("boot_id"),
@@ -231,6 +308,12 @@ def derive(results):
     ko_line = _one(text("ko_sha256")) or ""
     ko = {"path": KO_PATH, "status": status("ko_sha256"),
           "sha256": ko_line.split()[0] if re.match(r"^[0-9a-f]{64}\b", ko_line) else None}
+    ko_dlkm_line = _one(text("ko_dlkm_sha256")) or ""
+    ko_dlkm = {"path": KO_DLKM_PATH, "status": status("ko_dlkm_sha256"),
+               "sha256": ko_dlkm_line.split()[0] if re.match(r"^[0-9a-f]{64}\b", ko_dlkm_line) else None}
+    tether_jar_line = _one(text("tethering_jar_sha256")) or ""
+    tethering = {"path": TETHERING_JAR_PATH, "status": status("tethering_jar_sha256"),
+                 "jar_sha256": tether_jar_line.split()[0] if re.match(r"^[0-9a-f]{64}\b", tether_jar_line) else None}
     phy = text("iw_phy")
     bands = sorted({int(b) for b in re.findall(r"^\s*Band (\d+):", phy, re.M)})
     freqs = sorted({int(float(f)) for f in re.findall(r"\*\s+(\d+(?:\.\d+)?)\s+MHz", phy)})
@@ -351,7 +434,11 @@ def derive(results):
     else:
         ksu_mod_count = None
     ksu = {"present": ksu_present, "version": first("ksu_version"), "module_count": ksu_mod_count}
-    bt = {"bluetooth_on": first("bt_state"), "service_state": first("bt_service")}
+    bt_apk_match = re.search(r"\b([0-9a-f]{64})\b", text("bt_apk_sha256"))
+    bt = {"bluetooth_on": first("bt_state"), "service_state": first("bt_service"),
+          "leaudio_offload_supported": first("bt_leaudio_offload"),
+          "leaudio_offload_disabled": first("bt_leaudio_disabled"),
+          "apk_sha256": bt_apk_match.group(1) if bt_apk_match else None}
     reg6 = {"assessment": "not_assessed",
             "reason": ("T01 gathers prerequisites only. Allowed-channel counts, "
                        "DisallowBand6G values and band registration do not demonstrate "
@@ -362,9 +449,9 @@ def derive(results):
                 "allowed_channel_count_b8": allowed_count,
                 "allowed_6ghz_channel_count_b8": allowed_six_count,
                 "cfg_disallow_band6g": {p: v["disallow_band6g"] for p, v in cfg.items()}}}
-    return {"identity": identity, "mounts": mounts, "cfg": cfg, "ko": ko, "iw": iw,
-            "wifi": wifi, "dumpsys_wifi_filtered": dumpsys, "wpa": wpa, "link": link,
-            "net": net, "ksu": ksu, "bt": bt, "reg6": reg6}
+    return {"identity": identity, "mounts": mounts, "cfg": cfg, "ko": ko, "ko_dlkm": ko_dlkm,
+            "tethering": tethering, "iw": iw, "wifi": wifi, "dumpsys_wifi_filtered": dumpsys,
+            "wpa": wpa, "link": link, "net": net, "ksu": ksu, "bt": bt, "reg6": reg6}
 
 
 LIMITATIONS = [
@@ -384,7 +471,11 @@ def fail(message):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--adb", required=True, help="absolute path to adb")
+    parser.add_argument("--adb", default=None, help="absolute path to adb")
+    parser.add_argument("--adb-port", type=int, default=None,
+                        help="optional ADB server port (e.g. 15037 for RustDesk TCP tunnel)")
+    parser.add_argument("--ssh-command-json", default=None,
+                        help="pinned SSH transport JSON command argv")
     parser.add_argument("--serial", required=True)
     parser.add_argument("--out", required=True, help="new output directory")
     parser.add_argument("--timeout", type=float, default=15.0, help="per-call seconds")
@@ -392,8 +483,18 @@ def main(argv=None):
                         help="absolute read-only helper path under /data/local/tmp or /data/adb")
     args = parser.parse_args(argv)
 
-    if not os.path.isabs(args.adb) or not os.access(args.adb, os.X_OK) or not os.path.isfile(args.adb):
-        fail("--adb must be an existing executable absolute path")
+    if bool(args.adb) == bool(args.ssh_command_json):
+        fail("specify exactly one of --adb or --ssh-command-json")
+    ssh_argv = None
+    if args.ssh_command_json is not None:
+        if args.adb_port is not None:
+            fail("--adb-port cannot be combined with --ssh-command-json")
+        ssh_argv = load_ssh_command(args.ssh_command_json)
+    else:
+        if not os.path.isabs(args.adb) or not os.access(args.adb, os.X_OK) or not os.path.isfile(args.adb):
+            fail("--adb must be an existing executable absolute path")
+        if args.adb_port is not None and not (1 <= args.adb_port <= 65535):
+            fail("--adb-port must be between 1 and 65535")
     if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", args.serial):
         fail("--serial must be a plain adb serial")
     if not (0 < args.timeout <= MAX_TIMEOUT):
@@ -417,7 +518,8 @@ def main(argv=None):
     os.makedirs(probes_dir, mode=0o700)
     os.chmod(probes_dir, 0o700)
 
-    results = [run_probe(args.adb, args.serial, probe, args.timeout, probes_dir)
+    results = [run_probe(args.adb, args.serial, probe, args.timeout, probes_dir,
+                         adb_port=args.adb_port, ssh_argv=ssh_argv)
                for probe in build_probes(args.wiphy_helper)]
     counts = {}
     for entry in results:

@@ -489,6 +489,77 @@ class CollectorTest(unittest.TestCase):
         self.assertEqual(d7["net"]["wlan0_route4_line_count"], 1)
         self.assertEqual(d7["net"]["wlan0_route6_line_count"], 0)
 
+    def test_adb_port_ssh_and_multi_device_derived_fields(self):
+        rules = [
+            {"match": "ro.product.device", "stdout": "violin\n"},
+            {"match": "ro.build.version.sdk", "stdout": "37\n"},
+            {"match": "ro.mi.os.version.name", "stdout": "OS4.0\n"},
+            {"match": "ro.bluetooth.leaudio_offload.supported", "stdout": "true\n"},
+            {"match": "persist.bluetooth.leaudio_offload.disabled", "stdout": "false\n"},
+            {"match": "Bluetooth.apk",
+             "stdout": "1a5ae65ccd8621c03ca5a6a035979eac74025c3ecdda19dd84f1bbd53162983e  Bluetooth.apk\n"},
+            {"match": "framework-tethering.jar",
+             "stdout": "0b6f6c859301dae3276b9375c3b75333168dc5b76292ed9da03e29b59fc887bb  framework-tethering.jar\n"},
+            {"match": "/vendor_dlkm/lib/modules/",
+             "stdout": "f226384e73810a639b7fc6a335367cce2345a7726aac3dd66515493952987c22  ko\n"},
+        ]
+        cp = self.run_tool(rules, "--adb-port", "15037")
+        self.assertEqual(cp.returncode, 0, cp.stderr)
+        calls = self.adb_calls()
+        self.assertTrue(all(c[:4] == ["-P", "15037", "-s", "FAKESERIAL"] for c in calls))
+        derived = self.digest(cp)["derived"]
+        self.assertEqual(derived["identity"]["device"], "violin")
+        self.assertEqual(derived["identity"]["sdk_int"], 37)
+        self.assertEqual(derived["identity"]["hyperos_version"], "OS4.0")
+        self.assertIs(derived["identity"]["has_cellular_baseband"], False)
+        self.assertEqual(derived["ko_dlkm"]["sha256"],
+                         "f226384e73810a639b7fc6a335367cce2345a7726aac3dd66515493952987c22")
+        self.assertEqual(derived["tethering"]["jar_sha256"],
+                         "0b6f6c859301dae3276b9375c3b75333168dc5b76292ed9da03e29b59fc887bb")
+        self.assertEqual(derived["bt"]["apk_sha256"],
+                         "1a5ae65ccd8621c03ca5a6a035979eac74025c3ecdda19dd84f1bbd53162983e")
+        self.assertEqual(derived["bt"]["leaudio_offload_supported"], "true")
+
+        # Verify pinned SSH transport
+        ssh = self.tmp / "ssh"
+        ssh.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, os, sys\n"
+            "with open(os.environ['FAKE_ADB_LOG'], 'a') as fh: fh.write(json.dumps(sys.argv[1:])+'\\n')\n"
+            "cmd = sys.argv[-1]\n"
+            "for rule in json.load(open(os.environ['FAKE_ADB_RULES'])):\n"
+            "  if rule['match'] in cmd: sys.stdout.write(rule.get('stdout','')); sys.exit(rule.get('exit',0))\n"
+            "sys.exit(0)\n"
+        )
+        ssh.chmod(0o755)
+        cfg = self.tmp / "ssh.json"
+        cfg.write_text(json.dumps([
+            str(ssh), "-F", "/dev/null", "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=yes",
+            "-o", "UserKnownHostsFile=" + str(self.tmp / "kh"),
+            "-i", str(self.tmp / "id"), "-p", "12222", "shell@127.0.0.1",
+        ]))
+        self.log.unlink()
+        ssh_out = self.tmp / "ssh-out"
+        cp2 = subprocess.run(
+            [sys.executable, str(TOOL), "--ssh-command-json", str(cfg),
+             "--serial", "REMOTE01", "--out", str(ssh_out)],
+            capture_output=True, text=True, env=self.env(rules), timeout=60,
+        )
+        self.assertEqual(cp2.returncode, 0, cp2.stderr)
+        self.assertEqual(self.digest(cp2)["derived"]["identity"]["device"], "violin")
+        # Root user in SSH config must be rejected
+        bad_cfg = self.tmp / "bad-ssh.json"
+        bad_argv = json.loads(cfg.read_text())
+        bad_argv[-1] = "root@127.0.0.1"
+        bad_cfg.write_text(json.dumps(bad_argv))
+        cp_bad = subprocess.run(
+            [sys.executable, str(TOOL), "--ssh-command-json", str(bad_cfg),
+             "--serial", "REMOTE01", "--out", str(self.tmp / "bad-out")],
+            capture_output=True, text=True, timeout=15,
+        )
+        self.assertEqual(cp_bad.returncode, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

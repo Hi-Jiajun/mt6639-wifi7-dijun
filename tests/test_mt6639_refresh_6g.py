@@ -92,8 +92,7 @@ class Refresh6gTests(unittest.TestCase):
             "[ \"$1\" = wifi ] || exit 3\n"
             "shift\n"
             "echo \"wifi $*\" >> \"$MT6639_TEST_CALLS\"\n"
-            "if [ \"$*\" = 'force-country-code enabled US' ]; then echo US > \"$MT6639_TEST_COUNTRY_FILE\"; fi\n"
-            "if [ \"$*\" = 'force-country-code enabled CN' ]; then echo CN > \"$MT6639_TEST_COUNTRY_FILE\"; fi\n"
+            "if [ \"$1\" = force-country-code ] && [ \"$2\" = enabled ] && [ -n \"${3:-}\" ]; then echo \"$3\" > \"$MT6639_TEST_COUNTRY_FILE\"; fi\n"
             "if [ \"$*\" = 'force-country-code disabled' ]; then echo CN > \"$MT6639_TEST_COUNTRY_FILE\"; fi\n"
             "if [ \"$*\" = 'get-country-code' ]; then echo \"Wifi Country Code = $(cat \"$MT6639_TEST_COUNTRY_FILE\")\"; fi\n"
             "if [ \"${MT6639_TEST_FAIL_WIFI:-}\" = \"$*\" ]; then\n"
@@ -350,6 +349,25 @@ class Refresh6gTests(unittest.TestCase):
             ],
         )
         self.assertEqual((self.work / "state").read_text().strip(), "active")
+
+    def test_custom_target_country_and_keep_mode_on_us_baseline(self):
+        self._activate_transaction()
+        (self.work / "country.conf").write_text("TARGET_COUNTRY=JP\n")
+        res_jp = self.control("refresh")
+        self.assertEqual(res_jp.returncode, 0, res_jp.stdout)
+        self.assertIn("wifi force-country-code enabled JP", self.mutation_calls())
+        self.assertEqual(self.country_file.read_text().strip(), "JP")
+
+        # When baseline is already US and mode=auto (or keep), refresh preserves US without calling force-country-code.
+        (self.work / "country.conf").write_text("TARGET_COUNTRY=auto\n")
+        self.country_file.write_text("US\n")
+        self.native_ready.write_text(
+            '{"scan":1,"wifi":1,"country_override":0,'
+            '"override_code":"","country_code":"US","read_only":true}\n')
+        self.calls.write_text("")
+        res_keep = self.control("refresh")
+        self.assertEqual(res_keep.returncode, 0, res_keep.stdout)
+        self.assertFalse(any(c.startswith("wifi force-country-code") for c in self.mutation_calls()))
 
 
 if __name__ == "__main__":

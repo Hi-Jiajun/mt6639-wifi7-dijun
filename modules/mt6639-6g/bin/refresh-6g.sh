@@ -80,14 +80,20 @@ fi
 country_override=$(printf '%s\n' "$ready" |
     sed -n 's/.*"country_override":\([01]\).*/\1/p')
 country_code=$(printf '%s\n' "$ready" |
-    sed -n 's/.*"override_code":"\([A-Z][A-Z]\)".*/\1/p')
+    sed -n 's/.*"override_code":"\([A-Z0-9][A-Z0-9]\)".*/\1/p')
+eff_country=$(printf '%s\n' "$ready" |
+    sed -n 's/.*"country_code":"\([A-Z0-9][A-Z0-9]\)".*/\1/p')
+eff_country=${eff_country:-CN}
 case "$country_override" in
     0) country_code= ;;
     1)
-        case "$country_code" in US|CN) ;; *) fail 3 country_baseline_invalid ;; esac
+        case "$country_code" in [A-Z0-9][A-Z0-9]) ;; *) fail 3 country_baseline_invalid ;; esac
         ;;
     *) fail 3 country_baseline_invalid ;;
 esac
+target_pref=$(read_target_country) || fail 3 invalid_target_country
+resolve_target_country "$target_pref" "$country_override" "$country_code" "$eff_country" ||
+    fail 3 invalid_target_country
 country_changed=0
 restore_country_after_failure() {
     [ "$country_changed" = 1 ] || return 0
@@ -126,18 +132,18 @@ trap 'cleanup_on_signal 129' HUP
 trap 'cleanup_on_signal 130' INT
 trap 'cleanup_on_signal 143' TERM
 
-log "refresh-6g: rebuilding Wi-Fi target_6135=$before"
+log "refresh-6g: rebuilding Wi-Fi target_6135=$before pref=$target_pref target=$RESOLVED_TARGET"
 wifi set-scan-always-available disabled >/dev/null 2>&1 ||
     fail 90 wifi_scan_off_failed
-if [ "$country_override" != 1 ] || [ "$country_code" != US ]; then
+if [ "$RESOLVED_MUTATE" = 1 ] && { [ "$country_override" != 1 ] || [ "$country_code" != "$RESOLVED_TARGET" ]; }; then
     country_changed=1
-    wifi force-country-code enabled US >/dev/null 2>&1 || {
+    wifi force-country-code enabled "$RESOLVED_TARGET" >/dev/null 2>&1 || {
         restore_country_after_failure
         restore_scan_after_failure
         fail 90 country_us_failed
     }
     country_now=$(wifi get-country-code 2>/dev/null | sed 's/.* //')
-    [ "$country_now" = US ] || {
+    [ "$country_now" = "$RESOLVED_TARGET" ] || {
         restore_country_after_failure
         restore_scan_after_failure
         fail 90 country_us_readback_failed
@@ -170,11 +176,13 @@ wifi_now=$(read_setting wifi_on) ||
     { restore_country_after_failure; fail 90 wifi_readback_failed; }
 [ "$wifi_now" = 1 ] ||
     { restore_country_after_failure; fail 90 wifi_readback_mismatch; }
-country_now=$(wifi get-country-code 2>/dev/null | sed 's/.* //')
-[ "$country_now" = US ] || {
-    restore_country_after_failure
-    fail 90 country_us_missing_after_rebuild
-}
+if [ "$RESOLVED_MUTATE" = 1 ]; then
+    country_now=$(wifi get-country-code 2>/dev/null | sed 's/.* //')
+    [ "$country_now" = "$RESOLVED_TARGET" ] || {
+        restore_country_after_failure
+        fail 90 country_us_missing_after_rebuild
+    }
+fi
 
 attempt=0
 after=0

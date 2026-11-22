@@ -16,6 +16,7 @@ fi
 }
 mkdir -p "$OUT"
 javac -encoding UTF-8 -d "$OUT" \
+    "$ROOT/modules/mt6639-ui-lsposed/src/com/hiliang/mt6639ui/DeviceGate.java" \
     "$ROOT/modules/mt6639-ui-lsposed/src/com/hiliang/mt6639ui/HotspotStatus.java" \
     "$ROOT/modules/mt6639-ui-lsposed/src/com/hiliang/mt6639ui/HotspotRequestPayload.java" \
     "$ROOT/tests/java/com/hiliang/mt6639ui/HotspotStatusTest.java" \
@@ -45,6 +46,7 @@ javac -encoding UTF-8 -cp "$ANDROID_JAR" -d "$REFRESH/classes" \
     "$MODULE/build-support/xposed-api/src/de/robv/android/xposed/XposedBridge.java" \
     "$MODULE/build-support/xposed-api/src/de/robv/android/xposed/IXposedHookLoadPackage.java" \
     "$MODULE/build-support/xposed-api/src/de/robv/android/xposed/callbacks/XC_LoadPackage.java" \
+    "$MODULE/src/com/hiliang/mt6639ui/DeviceGate.java" \
     "$REFRESH/src/HotspotStatus.java" \
     "$MODULE/src/com/hiliang/mt6639ui/MainHook.java" \
     "$ROOT/tests/java/com/hiliang/mt6639ui/HotspotRefreshTest.java"

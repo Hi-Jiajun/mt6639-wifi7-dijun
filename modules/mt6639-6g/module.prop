@@ -1,6 +1,6 @@
 id=mt6639-6g
-name=MT6639 6GHz 实验开关与状态面板（默认持续启用）
-version=v0.3.0
-versionCode=22
+name=MT6639 6GHz 实验开关与状态面板（多机型适配）
+version=v0.4.1
+versionCode=24
 author=mt6639-dijun
-description=[等待状态采集] 支持 OS4 已核对驱动变体 | 内核：待检查 | 驱动：待检查 | 事务：未知 | 6GHz：未知 | 连接：未知。默认持续启用候选模块；实际无线行为待设备确认。
+description=[等待状态采集] 支持 dijun/violin/jinghu (OS3/OS4) | 内核：待检查 | 驱动：待检查 | 事务：未知 | 6GHz：未知 | 连接：未知。默认持续启用候选模块；实际无线行为待设备确认。

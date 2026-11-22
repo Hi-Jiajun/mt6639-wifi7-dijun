@@ -10,12 +10,13 @@
 set -euo pipefail
 
 ADB=${ADB:-outputs/linux-adb-20261026/extracted/platform-tools/adb}
+ADB_PORT=${ADB_PORT:-5037}
 SERIAL=${SERIAL:-YOUR_SERIAL}
 OUT=${1:-"outputs/ui-6g-badge-check-$(date +%Y%m%d-%H%M%S)"}
 SETTLE=${SETTLE:-12}
 
 mkdir -p "$OUT"
-adb_run() { "$ADB" -P 5037 -s "$SERIAL" shell "$@"; }
+adb_run() { "$ADB" -P "$ADB_PORT" -s "$SERIAL" shell "$@"; }
 su_run()  { adb_run "su -c $1"; }
 
 echo "== out: $OUT"
@@ -33,12 +34,16 @@ adb_run 'uiautomator dump /sdcard/ui-badge-check.xml' >/dev/null 2>&1 || true
 adb_run 'screencap -p /sdcard/ui-badge-check.png' >/dev/null 2>&1
 adb_run 'su -c "dmesg | grep -i -E \"avc.*(zn|lspd|lsposed)\" | tail -5"' >"$OUT/dmesg-avc.txt" 2>&1 || true
 
-"$ADB" -P 5037 -s "$SERIAL" pull /sdcard/ui-badge-check.xml "$OUT/ui.xml" >/dev/null 2>&1 || true
-"$ADB" -P 5037 -s "$SERIAL" pull /sdcard/ui-badge-check.png "$OUT/screenshot.png" >/dev/null 2>&1 || true
+"$ADB" -P "$ADB_PORT" -s "$SERIAL" pull /sdcard/ui-badge-check.xml "$OUT/ui.xml" >/dev/null 2>&1 || true
+"$ADB" -P "$ADB_PORT" -s "$SERIAL" pull /sdcard/ui-badge-check.png "$OUT/screenshot.png" >/dev/null 2>&1 || true
+adb_run 'rm -f /sdcard/ui-badge-check.xml /sdcard/ui-badge-check.png' >/dev/null 2>&1 || true
 
 if [[ -f "$OUT/ui.xml" ]]; then
-  echo "== rows on screen:"
-  grep -o 'text="[^"]*"' "$OUT/ui.xml" | sed 's/text="//;s/"$//' | grep -E 'LabNet|CMCC|2345|DIRECT' | sort -u | sed 's/^/   /'
+  node_cnt=$(grep -o 'text="[^"]*"' "$OUT/ui.xml" | wc -l | tr -d '[:space:]' || echo 0)
+  echo "== ui dump captured: text_nodes=$node_cnt (SSIDs hidden by default; set SHOW_SSIDS=1 for local lab filter)"
+  if [[ "${SHOW_SSIDS:-0}" == "1" ]]; then
+    { grep -o 'text="[^"]*"' "$OUT/ui.xml" | sed 's/text="//;s/"$//' | grep -E 'LabNet|CMCC|2345|DIRECT' | sort -u | sed 's/^/   /'; } || true
+  fi
 fi
 
 echo

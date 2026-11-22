@@ -9,7 +9,7 @@ OUT=$1
 [ ! -e "$OUT" ] || { echo 'REJECT output_exists' >&2; exit 73; }
 [ -f "$SOURCE/module.prop" ] && [ -f "$NATIVE" ] || exit 66
 [ "$(sha256sum "$NATIVE" | awk '{print $1}')" = \
-    8447612d22b010bcf1333a649b58917e361cfc27b22c4b11665d27ed5102768b ] ||
+    66646480d4421b48f11defbd371338dbf6ef5c45ddb1d0828497e556a6d4b19b ] ||
     { echo 'REJECT mount_txn_hash' >&2; exit 69; }
 
 PARENT=$(dirname -- "$OUT")
@@ -23,14 +23,15 @@ cp -R "$SOURCE"/. "$TMP/module/"
 cp "$NATIVE" "$TMP/module/bin/mount-txn"
 cp "$SOURCE/module.prop" "$TMP/module/module.prop.template"
 
-chmod 0755 "$TMP/module/action.sh" "$TMP/module/service.sh" \
+chmod 0755 "$TMP/module/customize.sh" "$TMP/module/action.sh" "$TMP/module/service.sh" \
     "$TMP/module/uninstall.sh" "$TMP/module/bin/apply.sh" \
     "$TMP/module/bin/check.sh" "$TMP/module/bin/control.sh" \
     "$TMP/module/bin/lib.sh" "$TMP/module/bin/mount-txn" \
     "$TMP/module/bin/native.sh" "$TMP/module/bin/post-reboot-check.sh" \
     "$TMP/module/bin/refresh-6g.sh" "$TMP/module/bin/restore.sh" \
     "$TMP/module/bin/softreboot-watch.sh" "$TMP/module/bin/status-card.sh" \
-    "$TMP/module/bin/verify-module.sh" "$TMP/module/bin/compat.sh"
+    "$TMP/module/bin/verify-module.sh" "$TMP/module/bin/compat.sh" \
+    "$TMP/module/bin/legacy-66-txn.sh"
 chmod 0644 "$TMP/module/module.prop" "$TMP/module/module.prop.template" "$TMP/module/config.conf" \
     "$TMP/module/compatibility.conf" \
     "$TMP/module/README.md" "$TMP/module/src/nl80211-wiphy-read.c"
@@ -47,7 +48,7 @@ fi
 
 (
     cd "$TMP/module"
-    find . -type f ! -name SHA256SUMS ! -name module.prop -print | LC_ALL=C sort |
+    find . -type f ! -name SHA256SUMS ! -name module.prop ! -name customize.sh ! -name README.md -print | LC_ALL=C sort |
         sed 's#^\./##' | xargs sha256sum > SHA256SUMS
 )
 source_tree_sha256=$(
@@ -58,7 +59,7 @@ source_tree_sha256=$(
 )
 {
     echo "source_tree_sha256=$source_tree_sha256"
-    echo "mount_txn_sha256=8447612d22b010bcf1333a649b58917e361cfc27b22c4b11665d27ed5102768b"
+    echo "mount_txn_sha256=66646480d4421b48f11defbd371338dbf6ef5c45ddb1d0828497e556a6d4b19b"
     echo "release_status=candidate_uninstalled"
 } > "$TMP/module/ASSET-PROVENANCE.txt"
 

@@ -75,7 +75,60 @@ public final class HotspotStatusTest {
         }
         expect("状态不可用：快照取值无效",
                 snapshotV3("1", "1", "1", "1", "yes"));
+        // v4 multi-device + pure Wi-Fi tablet checks
+        HotspotStatus.Snapshot tabletLocal = HotspotStatus.parseSnapshot(
+                snapshotV4("1", "0", "0", "1", "1", "1", "1", "1"), BOOT);
+        if (!tabletLocal.canStart6g() || !tabletLocal.canStart5g() || !tabletLocal.canStart2g()
+                || !tabletLocal.canStartLocal() || tabletLocal.canRunC02()) {
+            throw new AssertionError("v4 pure tablet readiness without reconnect keys");
+        }
+        HotspotStatus.Snapshot sta6g = HotspotStatus.parseSnapshot(
+                snapshotV4("1", "1", "0", "1", "1", "0", "1", "0"), BOOT);
+        if (!sta6g.canStart6g() || sta6g.canStart5g() || !sta6g.canStart2g()
+                || sta6g.canStartLocal() || !sta6g.canRunC02()) {
+            throw new AssertionError("v4 6g STA concurrency");
+        }
+        HotspotStatus.Snapshot sta2g = HotspotStatus.parseSnapshot(
+                snapshotV4("1", "0", "0", "1", "0", "1", "0", "0"), BOOT);
+        if (sta2g.canStart6g() || !sta2g.canStart5g() || sta2g.canStart2g()
+                || sta2g.canStartLocal()) {
+            throw new AssertionError("v4 2.4g STA concurrency");
+        }
+        expect("状态不可用：快照取值无效",
+                snapshotV4("1", "0", "0", "1", "1", "1", "1", "bad"));
+        for (String dev : new String[] {"dijun", "violin", "jinghu"}) {
+            for (int sdk : new int[] {35, 36, 37}) {
+                if (!DeviceGate.isSupported(dev, sdk)) {
+                    throw new AssertionError("expected supported: " + dev + "/" + sdk);
+                }
+            }
+            if (DeviceGate.isSupported(dev, 34) || DeviceGate.isSupported(dev, 38)) {
+                throw new AssertionError("unexpected sdk accepted for " + dev);
+            }
+        }
+        if (DeviceGate.isSupported("other", 37) || DeviceGate.isSupported(null, 37)) {
+            throw new AssertionError("unknown device accepted");
+        }
         System.out.println("RESULT=PASS");
+    }
+
+    private static String snapshotV4(
+            String apKey, String reconnect6g, String reconnect2g, String enforcing,
+            String ready6g, String ready5g, String ready2g, String localReady
+    ) {
+        return "schema=mt6639-hotspot-status-v4\n" +
+                "state=idle\n" +
+                "band=none\n" +
+                "width=none\n" +
+                "boot=" + BOOT + "\n" +
+                "ap_key=" + apKey + "\n" +
+                "reconnect_6g=" + reconnect6g + "\n" +
+                "reconnect_2g=" + reconnect2g + "\n" +
+                "enforcing=" + enforcing + "\n" +
+                "ready_6g=" + ready6g + "\n" +
+                "ready_5g=" + ready5g + "\n" +
+                "ready_2g=" + ready2g + "\n" +
+                "local_ready=" + localReady + "\n";
     }
 
     private static String snapshot(String state, String band, String width, String boot) {

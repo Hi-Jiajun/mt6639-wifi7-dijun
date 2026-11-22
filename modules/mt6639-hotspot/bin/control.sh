@@ -149,7 +149,7 @@ active_checked() {
     mv "$tmp" "$task/status.active" || return 1
     sh "$task/softap_native_config.sh" "$task" status "$band" "$width" >/dev/null 2>&1 || return 1
     timeout 5 dumpsys tethering --short 2>/dev/null |
-        grep -Eq '^[[:space:]]*mtap0 - TetheredState - lastError = 0$'
+        grep -Eq '^[[:space:]]*mtap0 - (TetheredState|LocalHotspotState) - lastError = 0$'
 }
 
 # A recorded recovery failure used to be replayed verbatim on every later
@@ -187,6 +187,56 @@ retry_checked_recovery() {
     [ "$(cat "$task/recovery.rc" 2>/dev/null)" = 0 ]
 }
 
+hotspot_proc_present() {
+    for p in /proc/[0-9]*; do
+        [ -d "$p" ] || continue
+        if cmd=$(timeout 2 tr '\000' ' ' < "$p/cmdline" 2>/dev/null); then
+            case "$cmd" in *mt6639-native-ap-*) return 0 ;; esac
+        elif [ -d "$p" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+reconcile_cross_boot() {
+    if [ ! -e "$SESSION" ] && [ ! -L "$SESSION" ]; then
+        return 0
+    fi
+    [ -d "$SESSION" ] && [ ! -L "$SESSION" ] || {
+        log 'REJECT session_cross_boot; authority retained'; return 78; }
+    [ -f "$BOOT_FILE" ] && [ ! -L "$BOOT_FILE" ] || {
+        log 'REJECT session_cross_boot; authority retained'; return 78; }
+    old_boot=$(cat "$BOOT_FILE" 2>/dev/null || true)
+    cur_boot=$(boot_id || true)
+    case "$old_boot" in
+        [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+        *) log 'REJECT session_cross_boot; authority retained'; return 78 ;;
+    esac
+    case "$cur_boot" in
+        [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+        *) log 'REJECT session_cross_boot; authority retained'; return 78 ;;
+    esac
+    [ "$old_boot" != "$cur_boot" ] || return 0
+    if [ -e /sys/class/net/mtap0 ] || hotspot_proc_present; then
+        log 'REJECT session_cross_boot; authority retained'
+        return 78
+    fi
+    tether_short=$(timeout 5 dumpsys tethering --short 2>/dev/null) || {
+        log 'REJECT session_cross_boot; authority retained'
+        return 78
+    }
+    printf '%s\n' "$tether_short" | grep -Fxq '    Upstream wanted: false' &&
+        ! printf '%s\n' "$tether_short" | grep -Eq '^[[:space:]]*mtap0 - ' || {
+        log 'REJECT session_cross_boot; authority retained'
+        return 78
+    }
+    clear_session || return 70
+    publish_status idle none none || true
+    log "reconcile: retired_cross_boot_idle_session old_boot=$old_boot"
+    return 0
+}
+
 stop_session() {
     if task=$(session_task); then
         :
@@ -196,7 +246,10 @@ stop_session() {
         log 'REJECT session_task_invalid; authority retained'
         return 73
     fi
-    same_boot || { log 'REJECT session_cross_boot; authority retained'; return 78; }
+    if ! same_boot; then
+        reconcile_cross_boot
+        return $?
+    fi
     publish_status stopping "$(cat "$BAND_FILE" 2>/dev/null || printf none)" \
         "$(cat "$WIDTH_FILE" 2>/dev/null || printf none)" || true
     if [ ! -e "$task/cleanup.request" ]; then
@@ -266,13 +319,13 @@ discard_staged_task() {
     rm -f "$task/softap_native_once.sh" "$task/softap_native_config.sh" \
         "$task/hostapd" "$task/hostapd_cli" "$task/delete_ifindex" \
         "$task/native-tether.dex" "$task/softap-profile.dex" \
-        "$task/twt_recover.sh" "$task/ap.key" "$task/reconnect.key" \
+        "$task/twt_recover.sh" "$task/compatibility.conf" "$task/ap.key" "$task/reconnect.key" \
         "$task/reconnect-2g.key" "$task/ap.conf" "$task/.stage-error" || return 74
     rmdir "$task" || return 76
 }
 
 stage_native_task() {
-    task=$1 upstream_key=$2
+    task=$1 upstream_key=${2:-}
     for f in softap_native_once.sh softap_native_config.sh hostapd hostapd_cli \
         delete_ifindex native-tether.dex softap-profile.dex twt_recover.sh; do
         cp "$MODDIR/bin/$f" "$task/$f" || {
@@ -280,13 +333,19 @@ stage_native_task() {
             return 70
         }
     done
-    cp "$PRIVATE/ap.key" "$task/ap.key" &&
+    cp "$MODDIR/compatibility.conf" "$task/compatibility.conf" &&
+        cp "$PRIVATE/ap.key" "$task/ap.key" || {
+            printf 'private_stage_failed\n' > "$task/.stage-error"
+            return 70
+        }
+    if [ -n "$upstream_key" ]; then
         cp "$PRIVATE/$upstream_key" "$task/$upstream_key" || {
             printf 'private_stage_failed\n' > "$task/.stage-error"
             return 70
         }
+    fi
     chmod 0700 "$task"/*.sh "$task/hostapd" "$task/hostapd_cli" "$task/delete_ifindex" &&
-        chmod 0600 "$task"/*.key "$task"/*.dex || {
+        chmod 0600 "$task"/*.key "$task"/*.dex "$task/compatibility.conf" || {
             printf 'stage_permission_failed\n' > "$task/.stage-error"
             return 70
         }
@@ -334,18 +393,29 @@ start_session() {
         return 73
     fi
     sha_ok || { log 'REJECT module_asset_hash_mismatch'; return 69; }
+    effective_upstream=${MT6639_HOTSPOT_UPSTREAM:-auto}
+    case "$effective_upstream" in
+        wifi|wifi-any|cell|wired|local|auto) ;;
+        *) log 'REJECT bad_upstream_mode'; return 64 ;;
+    esac
     case "$band" in
         2g) upstream_key=reconnect-2g.key ;;
         5g) upstream_key=reconnect-2g.key ;;
         6g) upstream_key=reconnect.key ;;
         *) log 'REJECT unsupported_band'; return 64 ;;
     esac
-    for f in ap.key "$upstream_key"; do
-        p=$PRIVATE/$f
+    private_key_valid() {
+        p=$PRIVATE/$1
         [ -d "$PRIVATE" ] && [ ! -L "$PRIVATE" ] && [ -f "$p" ] && [ ! -L "$p" ] &&
-            [ "$(stat -c %u "$p")" = 0 ] && [ "$(stat -c %a "$p")" = 600 ] || {
-                log "REJECT private_file_invalid $f"; return 66; }
-    done
+            [ "$(stat -c %u "$p")" = 0 ] && [ "$(stat -c %a "$p")" = 600 ]
+    }
+    private_key_valid ap.key || { log "REJECT private_file_invalid ap.key"; return 66; }
+    staged_upstream_key=
+    if private_key_valid "$upstream_key"; then
+        staged_upstream_key=$upstream_key
+    elif [ "$effective_upstream" = wifi ]; then
+        log "REJECT private_file_invalid $upstream_key"; return 66
+    fi
     if [ -e "$TASK_FILE" ]; then
         if active_checked; then log 'state=already_active'; return 0; fi
         stop_session || return $?
@@ -363,7 +433,7 @@ start_session() {
         return 70
     }
     stage_rc=0
-    stage_native_task "$task" "$upstream_key" || stage_rc=$?
+    stage_native_task "$task" "$staged_upstream_key" || stage_rc=$?
     if [ "$stage_rc" != 0 ]; then
         reason=$(cat "$task/.stage-error" 2>/dev/null || printf 'staging_failed\n')
         abort_staged_start "$task" "$reason" "$stage_rc"
@@ -381,7 +451,7 @@ start_session() {
         abort_staged_start "$task" session_publish 70 1
         return 70
     fi
-    MT6639_HOTSPOT_UPSTREAM=${MT6639_HOTSPOT_UPSTREAM:-wifi} \
+    MT6639_HOTSPOT_UPSTREAM=$effective_upstream \
         MODULE_GUARD_DIR=$MODDIR GUARDIAN_HOLD_SECONDS=$hold nohup setsid sh \
         "$task/softap_native_once.sh" "$task" run-tether "$band" "$width" \
         > "$task/session.log" 2>&1 < /dev/null &
@@ -491,7 +561,7 @@ action_lock() {
 }
 
 case "$OP" in
-    start|stop|recover|toggle|c02-24g)
+    start|start-local|stop|recover|toggle|c02-24g|reconcile)
         if action_lock; then
             :
         else
@@ -507,7 +577,15 @@ case "$OP" in
         status
         rc=$?
         ;;
-    start)
+    reconcile)
+        reconcile_cross_boot
+        rc=$?
+        ;;
+    start|start-local)
+        if [ "$OP" = start-local ]; then
+            MT6639_HOTSPOT_UPSTREAM=local
+            export MT6639_HOTSPOT_UPSTREAM
+        fi
         start_session
         rc=$?
         if [ "$rc" != 0 ]; then
@@ -543,6 +621,6 @@ case "$OP" in
         rc=$?
         [ "$rc" = 0 ] || publish_status unresolved "${ARG_BAND:-none}" "${ARG_WIDTH:-none}" || true
         ;;
-    *) echo 'usage: control.sh MODDIR status|start|stop|recover|toggle [5g|6g WIDTH]|c02-24g' >&2; exit 64 ;;
+    *) echo 'usage: control.sh MODDIR status|start|start-local|stop|recover|toggle [2g|5g|6g WIDTH]|c02-24g' >&2; exit 64 ;;
 esac
 exit "$rc"

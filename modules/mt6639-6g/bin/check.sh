@@ -6,6 +6,7 @@ MODDIR=${1:-${MODDIR:-/data/adb/modules/mt6639-6g}}
 . "$MODDIR/bin/lib.sh"
 
 echo "boot=$(boot_id)"
+echo "device=${DEVICE_NAME:-unknown}"
 echo "kernel=$(uname -r)"
 echo "compatibility_profile=$COMPAT_PROFILE"
 echo "compatibility_error=${COMPAT_ERROR:-none}"

@@ -31,6 +31,21 @@ public final class HotspotRequestPayloadTest {
                 !twoG.contains("\nwidth=20\n")) {
             throw new AssertionError(twoG);
         }
+        String local6g = HotspotRequestPayload.build("start-local-6g-320", BOOT, NONCE);
+        if (!local6g.contains("\nop=start-local\n") || !local6g.contains("\nband=6g\n") ||
+                !local6g.contains("\nwidth=320\n")) {
+            throw new AssertionError(local6g);
+        }
+        String local5g = HotspotRequestPayload.build("start-local-5g-80", BOOT, NONCE);
+        if (!local5g.contains("\nop=start-local\n") || !local5g.contains("\nband=5g\n") ||
+                !local5g.contains("\nwidth=80\n")) {
+            throw new AssertionError(local5g);
+        }
+        String local2g = HotspotRequestPayload.build("start-local-2g-20", BOOT, NONCE);
+        if (!local2g.contains("\nop=start-local\n") || !local2g.contains("\nband=2g\n") ||
+                !local2g.contains("\nwidth=20\n")) {
+            throw new AssertionError(local2g);
+        }
         String stop = HotspotRequestPayload.build("stop", BOOT, NONCE);
         if (!stop.contains("\nop=stop\n")) throw new AssertionError(stop);
         String c02 = HotspotRequestPayload.build("c02-24g", BOOT, NONCE);
@@ -39,6 +54,8 @@ public final class HotspotRequestPayloadTest {
         expectRejected("start-6g-6", BOOT, NONCE);
         expectRejected("start-5g-160", BOOT, NONCE);
         expectRejected("start-2g-40", BOOT, NONCE);
+        expectRejected("start-local-5g-160", BOOT, NONCE);
+        expectRejected("start-local-2g-40", BOOT, NONCE);
         expectRejected("c02-5g", BOOT, NONCE);
         expectRejected("start-6g-20", "bad", NONCE);
         expectRejected("start-6g-20", BOOT, "ABCDEF");

@@ -3,6 +3,7 @@ from pathlib import Path
 import hashlib
 import fcntl
 import os
+import shutil
 import subprocess
 import tempfile
 import time
@@ -12,7 +13,7 @@ import zipfile
 REPO = Path(__file__).resolve().parents[1]
 MOD = REPO / "modules/mt6639-hotspot"
 DEX_PROFILE = REPO / "outputs/softap-profile-build-20261026-1/classes.dex"
-DEX_TETHER = REPO / "outputs/native-tether-build-20261026-1/classes.dex"
+DEX_TETHER = REPO / "outputs/native-tether-build-v030-fixed/classes.dex"
 HOSTAPD_DIR = REPO / "outputs/hostapd-standalone-20261025-1/bin"
 DELETE_IFINDEX = REPO / "outputs/native-ifindex-delete-build-20261026-5/delete_ifindex"
 BOOT_ID = "11111111-2222-3333-4444-555555555555"
@@ -88,10 +89,10 @@ class HotspotModuleTests(unittest.TestCase):
         self.assertNotIn('/data/adb/modules/mt6639-hotspot/private/ap.key', c02)
         snapshot = (MOD / "bin/status_snapshot.sh").read_text()
         self.assertIn("/data/misc/mt6639-hotspot/status", snapshot)
-        self.assertIn("mt6639-hotspot-status-v3", snapshot)
+        self.assertIn("mt6639-hotspot-status-v4", snapshot)
         for field in (
             "ap_key", "reconnect_6g", "reconnect_2g", "enforcing",
-            "fiveg_upstream", "private_file_ok",
+            "ready_6g", "ready_5g", "ready_2g", "local_ready", "private_file_ok",
         ):
             self.assertIn(field, snapshot)
         self.assertIn("restorecon -F", snapshot)
@@ -109,9 +110,11 @@ class HotspotModuleTests(unittest.TestCase):
         self.assertIn("start:6g:160|start:6g:320", worker)
         self.assertIn("start:5g:20|start:5g:40|start:5g:80", worker)
         self.assertIn("start:2g:20", worker)
+        self.assertIn("start-local:6g:20", worker)
         self.assertIn("c02-24g:6g:20", worker)
         self.assertIn('"$MODDIR" c02-24g', worker)
         self.assertIn('start "$REQUEST_BAND" "$REQUEST_WIDTH"', worker)
+        self.assertIn('start-local "$REQUEST_BAND" "$REQUEST_WIDTH"', worker)
         self.assertIn('"$MODDIR" stop', worker)
         self.assertIn("EXPECTED_UID=1000", worker)
         self.assertIn("MAX_AGE_SECONDS=60", worker)
@@ -234,7 +237,7 @@ process_one() { echo process >> "$D/calls"; }
             known = [
                 "softap_native_once.sh", "softap_native_config.sh", "hostapd",
                 "hostapd_cli", "delete_ifindex", "native-tether.dex",
-                "softap-profile.dex", "twt_recover.sh", "ap.key",
+                "softap-profile.dex", "twt_recover.sh", "compatibility.conf", "ap.key",
                 "reconnect.key", "ap.conf", ".stage-error",
             ]
             for name in known:
@@ -328,7 +331,7 @@ process_one() { echo process >> "$D/calls"; }
             with zipfile.ZipFile(out) as archive:
                 names = set(archive.namelist())
                 for required in {
-                    "module.prop", "config.conf", "customize.sh", "action.sh", "service.sh",
+                    "module.prop", "config.conf", "compatibility.conf", "customize.sh", "action.sh", "service.sh",
                     "bin/control.sh", "bin/hostapd", "bin/hostapd_cli",
                     "bin/status_snapshot.sh",
                     "bin/request_worker.sh",
@@ -340,12 +343,23 @@ process_one() { echo process >> "$D/calls"; }
                     "bin/twt_recover.sh", "SHA256SUMS", "ASSET-PROVENANCE.txt",
                 }:
                     self.assertIn(required, names)
+                self.assertIn("version=v0.3.1", archive.read("module.prop").decode())
                 self.assertFalse(any(name.endswith(("ap.key", "reconnect.key")) for name in names))
                 self.assertFalse(any(name.startswith(("outputs/", "local/")) for name in names))
                 sums = archive.read("SHA256SUMS").decode()
+                self.assertIn("compatibility.conf", sums)
                 self.assertIn("bin/hostapd", sums)
                 self.assertIn("bin/control.sh", sums)
                 self.assertIn("bin/status_snapshot.sh", sums)
+                cust = archive.read("customize.sh").decode()
+                for required_exec in (
+                    "bin/control.sh", "bin/request_worker.sh", "bin/android-env.sh",
+                    "bin/delete_ifindex", "bin/hostapd", "bin/hostapd_cli",
+                ):
+                    self.assertIn(required_exec, cust)
+                nt_src = (REPO / "native/framework/NativeTether.java").read_text(encoding="utf-8")
+                self.assertIn("connectivityScope", nt_src)
+                self.assertNotIn("call(builder, \"setConnectivityScope\"", nt_src)
 
     @staticmethod
     def write_worker_stat_fixture(bindir):
@@ -636,6 +650,9 @@ process_one() { echo process >> "$D/calls"; }
             for width in ("20", "40", "80")
         ] + [
             ("start", "2g", "20", "start 2g 20"),
+            ("start-local", "6g", "20", "start-local 6g 20"),
+            ("start-local", "5g", "80", "start-local 5g 80"),
+            ("start-local", "2g", "20", "start-local 2g 20"),
         ] + [
             ("stop", "6g", "20", "stop"),
             ("c02-24g", "6g", "20", "c02-24g"),
@@ -763,6 +780,301 @@ process_one() { echo process >> "$D/calls"; }
             self.assertEqual(ok.returncode, 0, ok.stderr)
             self.assertEqual(work.stat().st_mode & 0o777, 0o700)
             self.assertEqual(child.stat().st_mode & 0o777, 0o644)
+
+    def _run_native_gate_fixture(
+            self, *, device="violin", ko_sha="f226384e73810a639b7fc6a335367cce2345a7726aac3dd66515493952987c22",
+            jar_sha="0b6f6c859301dae3276b9375c3b75333168dc5b76292ed9da03e29b59fc887bb",
+            band="6g", width="20", upstream_mode="auto", wifi_status="Wifi is enabled\n",
+            ip_addr="", ip_link="", baseband=""
+    ):
+        td = tempfile.TemporaryDirectory(prefix="mt6639-hotspot-gate-")
+        self.addCleanup(td.cleanup)
+        root = Path(td.name)
+        task = root / "mt6639-native-ap-test"
+        task.mkdir(mode=0o700)
+        bindir = root / "bin"
+        bindir.mkdir()
+        shutil.copyfile(MOD / "compatibility.conf", task / "compatibility.conf")
+        (task / "ap.key").write_text("fixture-only-password\n")
+        (task / "ap.conf").write_text("interface=mtap0\n")
+        shutil.copyfile(REPO / "tools/softap_native_config.sh", task / "softap_native_config.sh")
+        (task / "softap_native_config.sh").chmod(0o700)
+        for dummy in ("hostapd_cli", "delete_ifindex", "softap-profile.dex", "native-tether.dex"):
+            (task / dummy).write_bytes(b"fixture")
+        # Stop right after recording reachability at hostapd --mt6639-check-config once all preflight + upstream gates pass.
+        hostapd = task / "hostapd"
+        hostapd.write_text('#!/bin/sh\n: > "${1:+${0%/*}/reached_hostapd}"\nexit 99\n')
+        hostapd.chmod(0o700)
+        runner = task / "softap_native_once.sh"
+        src = (REPO / "tools/softap_native_once.sh").read_text(encoding="utf-8")
+        src = src.replace("/data/local/tmp/mt6639-native-ap-", str(root / "mt6639-native-ap-"))
+        runner.write_text(src, encoding="utf-8")
+        runner.chmod(0o700)
+        # Recompute dynamic pinned hashes inside sha256sum stub from actual repo files.
+        native_dex_sha = "de826266991f4715b57274575c3244e3a0d43d8697cf260979569c0ab04d322c"
+        shims = {
+            "id": '#!/bin/sh\nif [ "$1" = -Z ]; then echo u:r:ksu:s0; else echo 0; fi\n',
+            "getenforce": "#!/bin/sh\necho Enforcing\n",
+            "flock": "#!/usr/bin/python3\nimport fcntl,sys\nfcntl.flock(int(sys.argv[-1]),fcntl.LOCK_EX|fcntl.LOCK_NB)\n",
+            "timeout": '#!/bin/sh\nshift\nexec "$@"\n',
+            "stat": '''#!/bin/sh
+case "$2" in
+  %u) echo 0 ;;
+  %a) exec /usr/bin/stat -c %a "$3" ;;
+  *) exec /usr/bin/stat "$@" ;;
+esac
+''',
+            "getprop": f'''#!/bin/sh
+case "$1" in
+  ro.product.device) echo "{device}" ;;
+  gsm.version.baseband) echo "{baseband}" ;;
+  init.svc.hostapd) echo "" ;;
+  *) echo "" ;;
+esac
+''',
+            "app_process": '''#!/bin/sh
+case "$*" in
+  *"WifiSoftApProfile inspect"*) echo "ap_state=11" ;;
+  *"NativeTether inspect"*) echo "downstream_type=VIRTUAL interface=mtap0 scopes=GLOBAL,LOCAL" ;;
+esac
+''',
+            "dumpsys": '''#!/bin/sh
+printf "    Upstream wanted: false\\n    Current upstream interface(s): null\\n"
+''',
+            "cmd": '''#!/bin/sh
+printf "%s" "$FIXTURE_WIFI_STATUS"
+''',
+            "ip": '''#!/bin/sh
+case "$*" in
+  *"-4 addr show"*) printf "%s" "$FIXTURE_IP_ADDR" ;;
+  *"link show"*) printf "%s" "$FIXTURE_IP_LINK" ;;
+esac
+''',
+            "sha256sum": f'''#!/bin/sh
+case "$1" in
+  */wlan_drv_gen4m_eap_6639.ko) echo "{ko_sha}  ko" ;;
+  */framework-tethering.jar) echo "{jar_sha}  jar" ;;
+  */hostapd) echo "15023e3bfe6b08415ebcc92479c0cd4fb14adb57b9010266af73bcc1bdc7bc2b  hostapd" ;;
+  */hostapd_cli) echo "2da7d467b7b2628c4da40fb5ccc101b17f8b279bd9c038c32e4ae6e5b2924a42  hostapd_cli" ;;
+  */delete_ifindex) echo "d20169f8733dc3bd2813806b3deda79e84b497e40e4a0f82bb97cd585844d655  del" ;;
+  */softap-profile.dex) echo "7ff17f05008e77535dacac13c5c2f216c664bc26403d6cbfe7da7fb9b7c04017  p.dex" ;;
+  */native-tether.dex) echo "{native_dex_sha}  n.dex" ;;
+  */softap_native_config.sh) echo "7488253f5f93718f196033aed6ed8b6ead27b300fd2b0a07c6318b64cb73dfca  cfg" ;;
+  *) exec /usr/bin/sha256sum "$@" ;;
+esac
+''',
+            "sh": f'''#!/bin/sh
+case "$1" in
+  */softap_native_config.sh) exit 0 ;;
+  *) exec /bin/sh "$@" ;;
+esac
+''',
+        }
+        for name, body in shims.items():
+            p = bindir / name
+            p.write_text(body, encoding="utf-8")
+            p.chmod(0o755)
+        env = dict(
+            os.environ,
+            PATH=f"{bindir}:/usr/bin:/bin",
+            MT6639_HOTSPOT_UPSTREAM=upstream_mode,
+            FIXTURE_WIFI_STATUS=wifi_status,
+            FIXTURE_IP_ADDR=ip_addr,
+            FIXTURE_IP_LINK=ip_link,
+        )
+        res = subprocess.run(
+            ["/bin/sh", str(runner), str(task), "run-tether", band, width],
+            env=env, capture_output=True, text=True, timeout=15,
+        )
+        return res, task
+
+    def test_multi_device_compat_and_tablet_upstream_resolution(self):
+        # 1. Pure Wi-Fi tablet (violin OS4, no baseband, no eth/rmnet, disconnected STA) -> auto = local
+        res, task = self._run_native_gate_fixture()
+        self.assertTrue((task / "reached_hostapd").is_file(), (res.returncode, res.stderr + res.stdout))
+        self.assertEqual((task / "upstream.mode").read_text().strip(), "local")
+        self.assertEqual((task / "tether.scope").read_text().strip(), "local")
+
+        # 2. Jinghu OS3 with USB Ethernet uplink -> auto = wired, scope = global
+        res_w, task_w = self._run_native_gate_fixture(
+            device="jinghu",
+            ko_sha="95f302184f013b2f58fbdd80998eb599ee24ae9b83ae296820f195bfab4e2e30",
+            jar_sha="351d2fd9196b59e988ce5a6b8fb1809777ef66e3e2087c3d570c164ba54040e1",
+            ip_addr="5: eth0: <UP>\n    inet 10.0.0.5/24 brd 10.0.0.255 scope global eth0\n",
+        )
+        self.assertTrue((task_w / "reached_hostapd").is_file(), (res_w.returncode, res_w.stderr + res_w.stdout))
+        self.assertEqual((task_w / "upstream.mode").read_text().strip(), "wired")
+        self.assertEqual((task_w / "tether.scope").read_text().strip(), "global")
+
+        # 3. Arbitrary 6GHz STA without reconnect.key -> auto = wifi-any
+        res_6, task_6 = self._run_native_gate_fixture(
+            wifi_status='Wifi is enabled\nWifi is connected to "Guest-6G"\nSupplicant state: COMPLETED\nFrequency: 6135MHz\n',
+        )
+        self.assertTrue((task_6 / "reached_hostapd").is_file(), (res_6.returncode, res_6.stderr + res_6.stdout))
+        self.assertEqual((task_6 / "upstream.mode").read_text().strip(), "wifi-any")
+        self.assertEqual((task_6 / "tether.scope").read_text().strip(), "global")
+
+        # 4. 5GHz AP rejects 5GHz STA (sta_band_incompatible_with_5g), accepts 2.4GHz STA
+        bad_5g, bad_task = self._run_native_gate_fixture(
+            band="5g",
+            wifi_status='Wifi is enabled\nWifi is connected to "Any5G"\nSupplicant state: COMPLETED\nFrequency: 5180MHz\n',
+        )
+        self.assertEqual(bad_5g.returncode, 69)
+        self.assertFalse((bad_task / "reached_hostapd").exists())
+        self.assertIn("sta_band_incompatible_with_5g", (bad_task / "failure").read_text())
+
+        ok_5g, ok_task = self._run_native_gate_fixture(
+            band="5g",
+            wifi_status='Wifi is enabled\nWifi is connected to "Any24G"\nSupplicant state: COMPLETED\nFrequency: 2437MHz\n',
+        )
+        self.assertTrue((ok_task / "reached_hostapd").is_file())
+        self.assertEqual((ok_task / "upstream.mode").read_text().strip(), "wifi-any")
+
+        # 5. Unreviewed .ko or framework-tethering.jar hash fails before hostapd
+        bad_ko, bad_ko_task = self._run_native_gate_fixture(ko_sha="0" * 64)
+        self.assertEqual(bad_ko.returncode, 69)
+        self.assertFalse((bad_ko_task / "reached_hostapd").exists())
+        bad_jar, bad_jar_task = self._run_native_gate_fixture(jar_sha="0" * 64)
+        self.assertEqual(bad_jar.returncode, 69)
+        self.assertFalse((bad_jar_task / "reached_hostapd").exists())
+        # Cross-device .ko (dijun hash on violin) must be rejected too
+        cross_ko, cross_task = self._run_native_gate_fixture(
+            device="violin",
+            ko_sha="54619c2e9521fc084edd4ec93282715ac10e716ad4ae0a27ec5588fb64e618ea",
+        )
+        self.assertEqual(cross_ko.returncode, 69)
+        self.assertFalse((cross_task / "reached_hostapd").exists())
+
+    def test_status_snapshot_v4_dynamic_readiness(self):
+        td = tempfile.TemporaryDirectory(prefix="mt6639-snapshot-v4-")
+        self.addCleanup(td.cleanup)
+        root = Path(td.name)
+        mod = root / "mod"
+        shutil.copytree(MOD, mod)
+        private = root / "private"
+        private.mkdir(mode=0o700)
+        (private / "ap.key").write_text("secret\n")
+        (private / "ap.key").chmod(0o600)
+        misc = root / "misc"
+        misc.mkdir(mode=0o755)
+        boot = root / "boot"
+        boot.write_text(BOOT_ID + "\n")
+        bindir = root / "bin"
+        bindir.mkdir()
+        snap = mod / "bin/status_snapshot.sh"
+        src = (MOD / "bin/status_snapshot.sh").read_text()
+        src = (
+            src.replace("/data/adb/modules/mt6639-hotspot", str(mod))
+            .replace("/data/adb/mt6639-hotspot/private", str(private))
+            .replace("/data/misc", str(misc))
+            .replace("/proc/sys/kernel/random/boot_id", str(boot))
+        )
+        snap.write_text(src)
+        for name, body in {
+            "id": "#!/bin/sh\necho 0\n",
+            "getenforce": "#!/bin/sh\necho Enforcing\n",
+            "stat": '#!/bin/sh\ncase "$2" in %u) echo 0 ;; %a) exec /usr/bin/stat -c %a "$3" ;; esac\n',
+            "cmd": '#!/bin/sh\nprintf "%s" "$FIXTURE_WIFI"\n',
+        }.items():
+            p = bindir / name
+            p.write_text(body)
+            p.chmod(0o755)
+        cases = [
+            # (wifi_status, ready_6g, ready_5g, ready_2g, local_ready)
+            ("Wifi is enabled\n", "1", "1", "1", "1"),
+            ('Wifi is enabled\nWifi is connected to "Guest"\nSupplicant state: COMPLETED\nFrequency: 6135MHz\n', "1", "0", "1", "0"),
+            ('Wifi is enabled\nWifi is connected to "Guest2"\nSupplicant state: COMPLETED\nFrequency: 2412MHz\n', "0", "1", "0", "0"),
+            ('Wifi is enabled\nWifi is connected to "Guest5"\nSupplicant state: COMPLETED\nFrequency: 5180MHz\n', "0", "0", "1", "0"),
+            ("Wifi is disabled\n", "0", "0", "0", "0"),
+        ]
+        for wifi_out, r6, r5, r2, rl in cases:
+            with self.subTest(wifi=wifi_out.strip()):
+                env = dict(os.environ, PATH=f"{bindir}:/usr/bin:/bin", FIXTURE_WIFI=wifi_out)
+                res = subprocess.run(["sh", str(snap), str(mod), "init"], env=env, capture_output=True, text=True)
+                self.assertEqual(res.returncode, 0, res.stderr)
+                content = (misc / "mt6639-hotspot/status").read_text()
+                self.assertIn("schema=mt6639-hotspot-status-v4\n", content)
+                self.assertIn("reconnect_6g=0\n", content)
+                self.assertIn(f"ready_6g={r6}\n", content)
+                self.assertIn(f"ready_5g={r5}\n", content)
+                self.assertIn(f"ready_2g={r2}\n", content)
+                self.assertIn(f"local_ready={rl}\n", content)
+
+    def test_cross_boot_reconcile_and_worker_idle_snapshot_refresh(self):
+        td = tempfile.TemporaryDirectory(prefix="mt6639-hs-reconcile-")
+        self.addCleanup(td.cleanup)
+        root = Path(td.name)
+        mod = root / "mod"
+        shutil.copytree(MOD, mod)
+        work = root / "work"
+        session = work / "session"
+        session.mkdir(parents=True)
+        task_dir = root / "task-old"
+        task_dir.mkdir()
+        (session / "task").write_text(str(task_dir) + "\n")
+        (session / "boot").write_text("22222222-2222-4222-8222-222222222222\n")
+        (work / "state").write_text("active\n")
+        misc = root / "misc"
+        misc.mkdir(parents=True)
+        boot_f = root / "boot_id"
+        boot_f.write_text(BOOT_ID + "\n")
+        mtap0 = root / "mtap0"
+
+        ctrl_src = (MOD / "bin/control.sh").read_text()
+        ctrl_src = (
+            ctrl_src.replace("case \"$MODDIR\" in /data/adb/modules/mt6639-hotspot) ;; *) exit 64 ;; esac", "")
+            .replace("WORK=/data/adb/mt6639-hotspot", f"WORK={work}")
+            .replace("/data/local/tmp/mt6639-native-ap-", str(root / "task-"))
+            .replace("/proc/sys/kernel/random/boot_id", str(boot_f))
+            .replace("/sys/class/net/mtap0", str(mtap0))
+            .replace("for p in /proc/[0-9]*;", "for p in ;")
+            .replace("[ \"$(id -u)\" = 0 ] && [ \"$(id -Z)\" = u:r:ksu:s0 ] || exit 77", "")
+        )
+        ctrl_test = mod / "bin/control.sh"
+        ctrl_test.write_text(ctrl_src)
+        snap_src = (MOD / "bin/status_snapshot.sh").read_text()
+        snap_src = (
+            snap_src.replace("case \"$MODDIR\" in /data/adb/modules/mt6639-hotspot) ;; *) exit 64 ;; esac", "")
+            .replace("[ \"$(id -u)\" = 0 ] || exit 77", "")
+            .replace("/data/adb/mt6639-hotspot/private", str(work / "private"))
+            .replace("/data/misc", str(misc))
+            .replace("/proc/sys/kernel/random/boot_id", str(boot_f))
+        )
+        (mod / "bin/status_snapshot.sh").write_text(snap_src)
+
+        bindir = root / "bin"
+        bindir.mkdir()
+        for name, body in {
+            "stat": '#!/bin/sh\ncase "$2" in %u) echo 0 ;; %a) exec /usr/bin/stat -c %a "$3" ;; %u:%a) printf \'0:%s\\n\' "$(/usr/bin/stat -c %a "$3")" ;; esac\n',
+            "getenforce": "#!/bin/sh\necho Enforcing\n",
+            "cmd": "#!/bin/sh\necho 'Wifi is enabled'\n",
+            "dumpsys": "#!/bin/sh\necho '    Upstream wanted: false'\n",
+            "restorecon": "#!/bin/sh\nexit 0\n",
+        }.items():
+            p = bindir / name
+            p.write_text(body)
+            p.chmod(0o755)
+        env = dict(os.environ, PATH=f"{bindir}:/usr/bin:/bin")
+
+        # If mtap0 is still present across boot, reconcile rejects fail-closed (rc=78) and keeps authority
+        mtap0.write_text("")
+        res_busy = subprocess.run(["sh", str(ctrl_test), str(mod), "reconcile"], env=env, capture_output=True, text=True)
+        self.assertEqual(res_busy.returncode, 78, res_busy.stdout + res_busy.stderr)
+        self.assertTrue((session / "task").exists())
+
+        # Once proven idle across boot, reconcile archives old session to history/ and restores idle snapshot
+        mtap0.unlink()
+        res_ok = subprocess.run(["sh", str(ctrl_test), str(mod), "reconcile"], env=env, capture_output=True, text=True)
+        self.assertEqual(res_ok.returncode, 0, res_ok.stdout + res_ok.stderr)
+        self.assertFalse(session.exists())
+        self.assertEqual((work / "state").read_text().strip(), "idle")
+        self.assertEqual(len(list((work / "history").glob("*/task"))), 1)
+        self.assertIn("state=idle\n", (misc / "mt6639-hotspot/status").read_text())
+
+        # Verify request_worker.sh has refresh_idle_snapshot wired under action.lock
+        worker_src = (MOD / "bin/request_worker.sh").read_text()
+        self.assertIn("refresh_idle_snapshot()", worker_src)
+        self.assertIn('flock -n 9 9>&9', worker_src)
 
 
 if __name__ == "__main__":

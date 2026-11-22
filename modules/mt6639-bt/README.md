@@ -1,6 +1,6 @@
 # MT6639 LE Audio Host profile 模块
 
-适用于 Xiaomi 15S Pro（Dijun）、OS4.0.0.19.XODCNXM，由 KernelSU 管理 root 和模块。独立于 6GHz 模块；启用前同时检查完整 build fingerprint 和 Bluetooth APK SHA256（`22f2e2ac8c036f7716e792f1fa54d7f5c3dd53754cb3c01db93ee3981cd34339`），防止 APEX 独立更新后误用。
+适用于 Xiaomi 15S Pro（`dijun`）、Xiaomi Pad 7S Pro 12.5（`violin`）、Xiaomi Pad 7 Ultra 14（`jinghu`）的 HyperOS 3 / HyperOS 4 固件，由 KernelSU 管理 root 和模块。独立于 6GHz 模块；启用前动态定位 `/apex/com.android.bt/app/*/Bluetooth.apk` 并按 `compatibility.conf` 核对设备代号与 Bluetooth APK SHA256（取代脆弱的整包 build fingerprint 锁定），防止 APEX 独立更新后误用。
 
 默认开放本机已真实加载的六个 Host profile：BAP unicast client、broadcast source/assistant、CSIP coordinator、VCP controller、MCP server。它只开放 Host 入口，不伪造控制器能力、不强制 LC3，也不代表广播 sink、CIS/BIS、耳机互通或音频播放已验证。传统蓝牙、配对数据、offload 配置和 HAP 保持原路径。
 

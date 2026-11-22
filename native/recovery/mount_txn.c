@@ -19,6 +19,7 @@ extern int memcmp(const void *, const void *, size_t);
 extern ssize_t fgetxattr(int, const char *, void *, size_t);
 extern int fsetxattr(int, const char *, const void *, size_t, int);
 extern int fchmod(int, mode_t);
+extern char *getenv(const char *);
 #define NR_UMOUNT2 39
 #define NR_MOUNT 40
 #define NR_STATX 291
@@ -35,10 +36,10 @@ extern int fchmod(int, mode_t);
 #define LIMIT 131072
 #ifdef MT_MOUNT_TXN_TEST
 #define PREFIX "/data/local/tmp/mt6639-native-"
-#define SCHEMA "MT6639-TEST-v3"
+#define SCHEMA "MT6639-TEST-v4"
 #else
 #define PREFIX "/data/adb/mt6639-6g/transactions/t-"
-#define SCHEMA "MT6639-PROD-v3"
+#define SCHEMA "MT6639-PROD-v4"
 #endif
 struct xtime { long long sec; unsigned int nsec; int reserved; };
 struct sx {
@@ -55,7 +56,8 @@ struct id { unsigned long long mount, ino; unsigned int major, minor; };
 struct journal {
     char schema[16], boot[37], ns[128];
     struct id directory, target, box_base, box_owned, stage_empty, backing, owned;
-    int wlan, scan, wifi, country_override;
+    int wlan, scan, wifi, country_override, country_mutated, connected_before;
+    char override_code[4], baseline_code[4], target_country[4];
     unsigned long long checksum;
 };
 struct attr { unsigned long long set, clear, propagation, userns; };
@@ -235,42 +237,93 @@ static int contains(const char *h, size_t n, const char *needle) {
     for (i = 0; i + m <= n; i++) if (!memcmp(h + i, needle, m)) return 1;
     return 0;
 }
-static int country_parse(struct tx *t, int *override, char override_code[3],
-                         char effective_code[3]) {
+static int is_cc_char(char c) {
+    return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+}
+static int is_alpha_cc(const char *c) {
+    return c[0] >= 'A' && c[0] <= 'Z' && c[1] >= 'A' && c[1] <= 'Z' && !c[2];
+}
+static int is_valid_cc(const char *c) {
+    return is_cc_char(c[0]) && is_cc_char(c[1]) && !c[2];
+}
+static int is_6g_region(const char *c) {
+    static const char *const regions[] = {
+        "US", "CA", "GB", "DE", "FR", "NL", "CH", "SE",
+        "JP", "KR", "TW", "HK", "SG", "AU", "NZ"
+    };
+    size_t i;
+    for (i = 0; i < sizeof regions / sizeof regions[0]; i++) {
+        if (!strcmp(c, regions[i])) return 1;
+    }
+    return 0;
+}
+static int wlan_set_country(struct tx *t, const char *cc, int budget) {
+    char buf[96], out[256];
+#ifdef MT_MOUNT_TXN_TEST
+    char lo0, lo1;
+    if (!is_valid_cc(cc)) return 0;
+    lo0 = cc[0] >= 'A' && cc[0] <= 'Z' ? (char)(cc[0] + ('a' - 'A')) : cc[0];
+    lo1 = cc[1] >= 'A' && cc[1] <= 'Z' ? (char)(cc[1] + ('a' - 'A')) : cc[1];
+    snprintf(buf, sizeof buf, "country-%c%c", lo0, lo1);
+    return wlan_command(t, buf, budget, out, sizeof out, NULL) == 0;
+#else
+    char *args[] = {"/system/bin/runcon", "u:r:shell:s0", "/system/bin/sh", "-c", buf, NULL};
+    (void)t;
+    if (!is_alpha_cc(cc)) return 0;
+    snprintf(buf, sizeof buf, "exec /system/bin/cmd wifi force-country-code enabled %c%c", cc[0], cc[1]);
+    return mt_command_n(args, budget, out, sizeof out, NULL) == 0;
+#endif
+}
+static int country_parse(struct tx *t, int *override, char override_code[4],
+                         char effective_code[4]) {
     static const char prefix[] = "mOverrideCountryCode: ";
     static const char effective[] = "Wifi Country Code = ";
     char out[256]; size_t n = 0, plen = sizeof prefix - 1;
     if (wlan_command(t, "get-override", 20000, out, sizeof out, &n)) return -1;
     if (n == plen + 5 && !memcmp(out, prefix, plen) &&
         !memcmp(out + plen, "null", 4) && out[plen + 4] == '\n') {
-        *override = 0; override_code[0] = override_code[1] = override_code[2] = 0;
+        *override = 0; override_code[0] = override_code[1] = override_code[2] = override_code[3] = 0;
     }
     else if (n == plen + 3 && !memcmp(out, prefix, plen) &&
-             out[plen] >= 'A' && out[plen] <= 'Z' &&
-             out[plen + 1] >= 'A' && out[plen + 1] <= 'Z' && out[plen + 2] == '\n') {
+             is_cc_char(out[plen]) && is_cc_char(out[plen + 1]) && out[plen + 2] == '\n') {
         *override = 1; override_code[0] = out[plen]; override_code[1] = out[plen + 1];
-        override_code[2] = 0;
+        override_code[2] = override_code[3] = 0;
     }
     else return -1;
     n = 0;
     plen = sizeof effective - 1;
     if (wlan_command(t, "get-country", 20000, out, sizeof out, &n) ||
         n != plen + 3 || memcmp(out, effective, plen) ||
-        out[plen] < 'A' || out[plen] > 'Z' ||
-        out[plen + 1] < 'A' || out[plen + 1] > 'Z' || out[plen + 2] != '\n') return -1;
+        !is_cc_char(out[plen]) || !is_cc_char(out[plen + 1]) || out[plen + 2] != '\n') return -1;
     effective_code[0] = out[plen]; effective_code[1] = out[plen + 1];
-    effective_code[2] = 0;
+    effective_code[2] = effective_code[3] = 0;
     return 0;
 }
-/* The stock device may have no override (auto country) or an explicit CN. Both
- * currently resolve the driver to CN. Any other baseline is outside this
- * version lock: reject before mounting rather than guess how to restore it. */
-static int country_read(struct tx *t, int *override) {
-    char override_code[3], code[3];
-    if (country_parse(t, override, override_code, code) ||
-        code[0] != 'C' || code[1] != 'N' ||
-        (*override && (override_code[0] != 'C' || override_code[1] != 'N'))) return -1;
-    return 0;
+/* Accept any valid baseline (auto CN, existing override, 00, etc.) and record
+ * the exact state so teardown restores it cleanly without colliding with third-party hooks. */
+static int country_prepare(struct tx *t) {
+    const char *pref;
+    if (country_parse(t, &t->r.country_override, t->r.override_code, t->r.baseline_code)) return -1;
+    pref = getenv("MT6639_TARGET_COUNTRY");
+    if (!pref || !*pref) pref = "auto";
+    t->r.country_mutated = 0;
+    t->r.target_country[0] = t->r.target_country[1] = t->r.target_country[2] = t->r.target_country[3] = 0;
+    if (!strcmp(pref, "keep")) {
+        return 0;
+    }
+    if (!strcmp(pref, "auto")) {
+        if (is_6g_region(t->r.baseline_code)) return 0;
+        t->r.country_mutated = 1;
+        t->r.target_country[0] = 'U'; t->r.target_country[1] = 'S';
+        return 0;
+    }
+    if (is_alpha_cc(pref) && strcmp(pref, "CN") != 0) {
+        if (t->r.country_override == 1 && !strcmp(t->r.override_code, pref)) return 0;
+        t->r.country_mutated = 1;
+        t->r.target_country[0] = pref[0]; t->r.target_country[1] = pref[1];
+        return 0;
+    }
+    return -1;
 }
 /* Business readiness is not implied by the wifi setting: both association and a
  * wlan0 IPv4 address must be observed. Failure to observe is a timeout, never a
@@ -350,7 +403,12 @@ static int load(struct tx *t) {
         !backing_equal(&r.box_owned, &r.box_base) ||
         r.stage_empty.mount != r.box_owned.mount || (r.wlan != 0 && r.wlan != 1) ||
         (r.wlan && ((r.scan != 0 && r.scan != 1) || r.wifi != 1 ||
-                    (r.country_override != 0 && r.country_override != 1)))) return 0;
+                    (r.country_override != 0 && r.country_override != 1) ||
+                    (r.country_mutated != 0 && r.country_mutated != 1) ||
+                    (r.connected_before != 0 && r.connected_before != 1) ||
+                    !is_valid_cc(r.baseline_code) ||
+                    (r.country_override && !is_valid_cc(r.override_code)) ||
+                    (r.country_mutated && (!is_alpha_cc(r.target_country) || !strcmp(r.target_country, "CN")))))) return 0;
     t->r = r; return 1;
 }
 static int setup(struct tx *t, const char *path) {
@@ -437,12 +495,22 @@ static int recover(struct tx *t) {
     if (!intent) return rc; /* No radio side effect could have started. */
     if (!done) {
         ok = wlan_write(t, "scan-off", 20000);
-        if (!wlan_write(t, "country-cn", 20000)) ok = 0;
+        if (t->r.country_mutated) {
+            if (t->r.country_override) {
+                if (is_alpha_cc(t->r.override_code) && !wlan_set_country(t, t->r.override_code, 20000)) ok = 0;
+            } else {
+                if (is_alpha_cc(t->r.baseline_code)) {
+                    if (!wlan_set_country(t, t->r.baseline_code, 20000)) ok = 0;
+                } else {
+                    if (!wlan_write(t, "country-auto", 20000)) ok = 0;
+                }
+            }
+        }
         if (!wlan_write(t, "wifi-off", 20000)) ok = 0;
         if (!cycle_delay(8000)) ok = 0;
         if (!wlan_write(t, "wifi-on", 20000)) ok = 0;
         if (!cycle_delay(12000)) ok = 0;
-        if (!t->r.country_override && !wlan_write(t, "country-auto", 20000)) ok = 0;
+        if (t->r.country_mutated && !t->r.country_override && !wlan_write(t, "country-auto", 20000)) ok = 0;
         /* Scan stays off while the radio is down, but must be back before
          * waiting for association: a supplicant that cannot scan otherwise
          * only finds the AP after an unrelated later scan. */
@@ -454,9 +522,10 @@ static int recover(struct tx *t) {
             !marker_write(t, "wlan-restored", "restored\n")) return 6;
     }
     /* Association readiness is a separate durable result. A completed restore
-     * remains idempotent even if the user later disconnects Wi-Fi. */
+     * remains idempotent even if the user later disconnects Wi-Fi. If Wi-Fi was
+     * disconnected prior to enabling, do not stall for 45 seconds waiting to associate. */
     if (netdone) return rc;
-    if (wait_network(t, 45000)) {
+    if (!t->r.connected_before || wait_network(t, 45000)) {
         return marker_write(t, "wlan-net-ready", "ready\n") ? rc : 6;
     }
     return rc == 0 || rc == 5 ? 7 : rc;
@@ -504,11 +573,14 @@ static int prepare(struct tx *t, int *container, int *cover) {
     memcpy(t->r.boot, t->boot, sizeof t->boot); memcpy(t->r.ns, t->ns, sizeof t->ns);
     t->r.wlan = t->wlan_requested;
     if (t->r.wlan) {
+        char link_out[4096]; size_t ln = 0;
         t->r.scan = wlan_read(t, "get-scan");
         if (t->r.scan != 0 && t->r.scan != 1) return 0;
         t->r.wifi = wlan_read(t, "get-wifi");
         if (t->r.wifi != 1) return 0;
-        if (country_read(t, &t->r.country_override)) return 0;
+        if (country_prepare(t)) return 0;
+        t->r.connected_before = (!wlan_command(t, "get-link", 20000, link_out, sizeof link_out, &ln) &&
+                                 contains(link_out, ln, "Wifi is connected to")) ? 1 : 0;
     }
     if (!identity(t->dir, "", &t->r.directory) ||
         !identity(t->parent, "", &parent) || !identity(AT_FDCWD, t->target, &t->r.target) ||
@@ -657,10 +729,16 @@ static int wlan_apply_step(struct tx *t, const char *action, long long deadline)
         (t->persistent && module_state(t) != 0)) return 0;
     return wlan_write(t, action, remaining > 20000 ? 20000 : (int)remaining);
 }
+static int wlan_apply_country_step(struct tx *t, const char *cc, long long deadline) {
+    long long remaining = deadline - now_ms();
+    if (stopping || cancel_state(t) != 0 || remaining <= 0 ||
+        (t->persistent && module_state(t) != 0)) return 0;
+    return wlan_set_country(t, cc, remaining > 20000 ? 20000 : (int)remaining);
+}
 static int wlan_apply(struct tx *t, const char *fault, long long deadline, int *handshake) {
     if (!marker_write(t, "wlan-intent", "intent\n") ||
         !wlan_apply_step(t, "scan-off", deadline) ||
-        !wlan_apply_step(t, "country-us", deadline) ||
+        (t->r.country_mutated && !wlan_apply_country_step(t, t->r.target_country, deadline)) ||
         !wlan_apply_step(t, "wifi-off", deadline) ||
         !mark(t, "wlan-off", fault, deadline, handshake) || !cycle_delay(8000) ||
         !wlan_apply_step(t, "wifi-on", deadline) || !cycle_delay(12000) ||
@@ -795,7 +873,7 @@ int main(int argc, char **argv) {
 #ifndef MT_MOUNT_TXN_TEST
     if (argc == 2 && !strcmp(argv[1], "inspect-wlan")) {
         int scan = wlan_read(&t, "get-scan"), wifi = wlan_read(&t, "get-wifi"), over;
-        char override_code[3], code[3];
+        char override_code[4], code[4];
         if (scan < 0 || wifi < 0 ||
             country_parse(&t, &over, override_code, code)) return 4;
         printf("{\"scan\":%d,\"wifi\":%d,\"country_override\":%d,"

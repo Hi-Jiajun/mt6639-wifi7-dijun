@@ -41,6 +41,26 @@ public final class NativeTether {
         return method.invoke(target, args);
     }
 
+    /**
+     * Build a TetheringRequest for TETHERING_VIRTUAL (type 7) on mtap0.
+     * On HyperOS 3/4, Builder.setConnectivityScope rejects VIRTUAL+LOCAL client-side even though
+     * TetheringConnector and IpServer natively support LOCAL scope for type 7, so update
+     * TetheringRequestParcel.connectivityScope directly and assert getConnectivityScope().
+     */
+    private static Object buildVirtualRequest(Class<?> builderType, int virtualType, int scopeValue)
+            throws Exception {
+        Object builder = builderType.getConstructor(int.class).newInstance(virtualType);
+        call(builder, "setInterfaceName", new Class<?>[]{String.class}, "mtap0");
+        Object request = call(builder, "build", new Class<?>[0]);
+        Object parcel = call(request, "getParcel", new Class<?>[0]);
+        parcel.getClass().getField("connectivityScope").setInt(parcel, scopeValue);
+        int actualScope = ((Integer) call(request, "getConnectivityScope", new Class<?>[0])).intValue();
+        if (actualScope != scopeValue) {
+            throw new IllegalStateException("connectivity_scope_mismatch_" + actualScope);
+        }
+        return request;
+    }
+
     public static void main(String[] args) {
         int rc = 1;
         try {
@@ -62,20 +82,19 @@ public final class NativeTether {
             Class<?> manager = Class.forName("android.net.TetheringManager");
             int virtualType = manager.getField("TETHERING_VIRTUAL").getInt(null);
             int globalScope = manager.getField("CONNECTIVITY_SCOPE_GLOBAL").getInt(null);
-            if (virtualType != 7 || globalScope != 1)
+            int localScope = manager.getField("CONNECTIVITY_SCOPE_LOCAL").getInt(null);
+            if (virtualType != 7 || globalScope != 1 || localScope != 2)
                 throw new IllegalStateException("unexpected_tethering_api");
             Class<?> builderType = Class.forName("android.net.TetheringManager$TetheringRequest$Builder");
-            Object builder = builderType.getConstructor(int.class).newInstance(virtualType);
-            call(builder, "setInterfaceName", new Class<?>[]{String.class}, "mtap0");
-            call(builder, "setConnectivityScope", new Class<?>[]{int.class}, globalScope);
-            Object request = call(builder, "build", new Class<?>[0]);
-            Object parcel = call(request, "getParcel", new Class<?>[0]);
-            connector.getClass().getMethod("startTethering", parcel.getClass(), String.class,
-                    String.class, listenerType);
-            connector.getClass().getMethod("stopTetheringRequest", request.getClass(), String.class,
-                    String.class, listenerType);
-            System.out.println("downstream_type=VIRTUAL interface=mtap0 scope=GLOBAL");
             if (op.equals("inspect")) {
+                buildVirtualRequest(builderType, virtualType, globalScope);
+                Object localReq = buildVirtualRequest(builderType, virtualType, localScope);
+                Object parcel = call(localReq, "getParcel", new Class<?>[0]);
+                connector.getClass().getMethod("startTethering", parcel.getClass(), String.class,
+                        String.class, listenerType);
+                connector.getClass().getMethod("stopTetheringRequest", localReq.getClass(), String.class,
+                        String.class, listenerType);
+                System.out.println("downstream_type=VIRTUAL interface=mtap0 scopes=GLOBAL,LOCAL");
                 System.out.println("api_shape_verified=1 no_request_sent=1");
             } else {
                 File dir = new File(args[1]).getCanonicalFile();
@@ -89,6 +108,26 @@ public final class NativeTether {
                 if (!index.equals(liveIndex)) throw new IllegalStateException("interface_owner_changed");
                 if (!new File(dir, "tether.intent").isFile())
                     throw new IllegalStateException("missing_tether_intent");
+                String scopeName = "global";
+                int scopeValue = globalScope;
+                File scopeFile = new File(dir, "tether.scope");
+                if (scopeFile.exists()) {
+                    if (Files.isSymbolicLink(scopeFile.toPath()) || !scopeFile.isFile())
+                        throw new IllegalArgumentException("invalid_tether_scope");
+                    String rawScope = new String(Files.readAllBytes(scopeFile.toPath())).trim();
+                    if ("local".equals(rawScope)) {
+                        scopeName = "local";
+                        scopeValue = localScope;
+                    } else if ("global".equals(rawScope)) {
+                        scopeName = "global";
+                        scopeValue = globalScope;
+                    } else {
+                        throw new IllegalArgumentException("invalid_tether_scope");
+                    }
+                }
+                Object request = buildVirtualRequest(builderType, virtualType, scopeValue);
+                Object parcel = call(request, "getParcel", new Class<?>[0]);
+                System.out.println("downstream_type=VIRTUAL interface=mtap0 scope=" + scopeName.toUpperCase());
                 Result result = new Result();
                 Object listener = Proxy.newProxyInstance(listenerType.getClassLoader(),
                         new Class<?>[]{listenerType}, (proxy, method, params) -> {

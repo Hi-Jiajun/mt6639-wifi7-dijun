@@ -47,6 +47,7 @@ else
     fail dex_class_inspector_missing
 fi
 printf '%s\n' "$classes" | grep -q 'Lcom/hiliang/mt6639ui/MainHook;' || fail main_hook
+printf '%s\n' "$classes" | grep -q 'Lcom/hiliang/mt6639ui/DeviceGate;' || fail device_gate
 printf '%s\n' "$classes" | grep -q 'Lcom/hiliang/mt6639ui/BadgeRenderer;' || fail renderer
 printf '%s\n' "$classes" | grep -q 'Lcom/hiliang/mt6639ui/HotspotStatus;' || fail hotspot_status
 printf '%s\n' "$classes" | grep -q 'Lcom/hiliang/mt6639ui/HotspotRequestPayload;' || fail hotspot_request_payload
@@ -62,7 +63,7 @@ javap -classpath "$OUT/xposed-api" -s \
     | grep -q 'Lde/robv/android/xposed/XC_MethodHook$Unhook;' \
     || fail xposed_api_return_type
 
-grep -q 'EXPECTED_FINGERPRINT' \
+grep -q 'DeviceGate.isSupported' \
     "$MODULE/src/com/hiliang/mt6639ui/MainHook.java" || fail version_lock
 grep -q 'wifi_signal_icon_connected_color' \
     "$MODULE/src/com/hiliang/mt6639ui/BadgeRenderer.java" || fail connected_color

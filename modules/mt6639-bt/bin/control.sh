@@ -10,7 +10,9 @@ reject() { echo "REJECT $*" >&2; exit 69; }
 [ "$(id -u)" = 0 ] || reject not_root
 [ "$(id -Z)" = u:r:ksu:s0 ] || reject not_kernelsu_context
 [ "$(getenforce)" = Enforcing ] || reject selinux_not_enforcing
-[ "$(getprop ro.product.device)" = dijun ] || reject wrong_device
+DEVICE=$(getprop ro.product.device)
+case "$DEVICE" in dijun|violin|jinghu) ;; *) reject wrong_device ;; esac
+APEX_APP_ROOT=/apex/com.android.bt/app
 BOOT=$(cat /proc/sys/kernel/random/boot_id) || exit 70
 case "$BOOT" in ''|*[!a-f0-9-]*) reject invalid_boot_id ;; esac
 BASE=/data/adb/mt6639-bt
@@ -109,10 +111,67 @@ case "$operation" in
     restore) restore; exit $? ;;
 esac
 
+resolve_bluetooth_apk() {
+    [ -d "$APEX_APP_ROOT" ] && [ ! -L "$APEX_APP_ROOT" ] || return 1
+    found=
+    count=0
+    for candidate in "$APEX_APP_ROOT"/*/Bluetooth.apk "$APEX_APP_ROOT"/Bluetooth.apk; do
+        [ -e "$candidate" ] || [ -L "$candidate" ] || continue
+        [ -f "$candidate" ] && [ ! -L "$candidate" ] || return 1
+        parent_dir=${candidate%/*}
+        [ -d "$parent_dir" ] && [ ! -L "$parent_dir" ] || return 1
+        found=$candidate
+        count=$((count + 1))
+    done
+    [ "$count" = 1 ] || return 1
+    printf '%s\n' "$found"
+}
+
+check_bt_compatibility() {
+    table=$MODDIR/compatibility.conf
+    [ -f "$table" ] && [ ! -L "$table" ] || reject compatibility_table_invalid
+    actual_sha=$1
+    bt_profile=$(awk -v device="$DEVICE" -v actual="$actual_sha" '
+        /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+        NF != 3 { invalid=1; next }
+        $1 !~ /^[a-z0-9][a-z0-9-]*$/ { invalid=1; next }
+        length($3) != 64 || $3 ~ /[^0-9a-f]/ { invalid=1; next }
+        seen_id[$1]++ { invalid=1; next }
+        {
+            n_devs = split($2, devs, ",")
+            if (n_devs < 1) { invalid=1; next }
+            delete row_devs
+            dev_match = 0
+            for (d = 1; d <= n_devs; d++) {
+                if (devs[d] !~ /^(dijun|violin|jinghu)$/ || row_devs[devs[d]]++) invalid=1
+                if (seen_dev_hash[devs[d], $3]++) invalid=1
+                if (devs[d] == device) dev_match = 1
+            }
+            if (dev_match) {
+                dev_rows++
+                if ($3 == actual) { matched=$1; found++ }
+            }
+        }
+        END {
+            if (invalid) exit 4
+            if (dev_rows < 1) exit 5
+            if (found != 1) exit 6
+            print matched
+        }
+    ' "$table")
+    rc=$?
+    case "$rc" in
+        0) ;;
+        4) reject compatibility_table_invalid ;;
+        5) reject wrong_device ;;
+        *) reject unsupported_bluetooth_apk ;;
+    esac
+}
+
 [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ] || reject module_disabled_or_removing
-[ "$(getprop ro.build.fingerprint)" = 'Xiaomi/dijun/dijun:17/CP2A.260605.016/OS4.0.0.19.XODCNXM:user/release-keys' ] || reject unsupported_build
-apk_hash=$(sha256sum /apex/com.android.bt/app/Bluetooth@CP2A.260605.016/Bluetooth.apk 2>/dev/null) || reject unsupported_bluetooth_apex
-[ "${apk_hash%% *}" = 22f2e2ac8c036f7716e792f1fa54d7f5c3dd53754cb3c01db93ee3981cd34339 ] || reject unsupported_bluetooth_apk
+bt_apk=$(resolve_bluetooth_apk) || reject unsupported_bluetooth_apex
+apk_hash=$(sha256sum "$bt_apk" 2>/dev/null) || reject unsupported_bluetooth_apex
+check_bt_compatibility "${apk_hash%% *}"
 [ "$(getprop ro.bluetooth.leaudio_offload.supported)" = true ] || reject no_leaudio_offload_baseline
 [ "$(getprop persist.bluetooth.leaudio_offload.disabled)" = false ] || reject offload_disabled
 if [ -d "$STATE" ]; then

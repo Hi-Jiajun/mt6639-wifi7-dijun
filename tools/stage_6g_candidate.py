@@ -27,8 +27,9 @@ REMOTE_TASK = re.compile(r"^/data/local/tmp/mt6639-stage-[A-Za-z0-9]+$")
 EXPECTED_FINGERPRINT = (
     "Xiaomi/dijun/dijun:17/CP2A.260605.016/OS4.0.0.19.XODCNXM:user/release-keys"
 )
+SUPPORTED_DEVICES = {"dijun", "violin", "jinghu"}
 FINGERPRINT_RE = re.compile(
-    r"^Xiaomi/dijun/dijun:17/[^/\s]+/OS4\.[0-9A-Za-z._-]+:user/release-keys$"
+    r"^Xiaomi/(dijun|violin|jinghu)/(dijun|violin|jinghu):(15|16|17)/[^/\s]+/OS[234]\.[0-9A-Za-z._-]+:user/release-keys$"
 )
 EXPECTED_KERNEL = "6.18.21-android17-5-g1d099fcb35e0-abogki538445360-4k"
 STOCK_CFG_SHA = "e4dcd846f31077864932b499d462cfd6a8ca1befc6386f502813e0ba053cc154"
@@ -39,7 +40,7 @@ def load_compatibility_table(root: Path) -> dict[str, str]:
     if not table.exists():
         fallback = Path(__file__).resolve().parents[1] / "modules/mt6639-6g/compatibility.conf"
         if not fallback.is_file() or fallback.is_symlink():
-            return {EXPECTED_KERNEL: STOCK_CFG_SHA}
+            return {f"dijun|{EXPECTED_KERNEL}": STOCK_CFG_SHA}
         table = fallback
     if table.is_symlink() or not table.is_file():
         raise StageError("COMPAT_TABLE_INVALID", "compatibility.conf is not a regular non-symlink file")
@@ -50,19 +51,27 @@ def load_compatibility_table(root: Path) -> dict[str, str]:
         if not stripped or stripped.startswith("#"):
             continue
         parts = stripped.split()
-        if len(parts) < 4:
+        if len(parts) < 5:
             raise StageError("COMPAT_TABLE_INVALID", "compatibility.conf row malformed")
-        profile, kernel, cfg_sha, *ko_hashes = parts
-        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", profile) or not re.fullmatch(r"[a-zA-Z0-9._+-]+", kernel):
-            raise StageError("COMPAT_TABLE_INVALID", "compatibility.conf profile or kernel invalid")
-        if profile in profiles or kernel in kernels:
-            raise StageError("COMPAT_TABLE_INVALID", "compatibility.conf duplicate profile or kernel")
+        profile, devs_raw, kernel, cfg_sha, *ko_hashes = parts
+        devs = devs_raw.split(",")
+        if (not re.fullmatch(r"[a-z0-9][a-z0-9-]*", profile)
+                or not devs or any(d not in SUPPORTED_DEVICES for d in devs)
+                or len(set(devs)) != len(devs)
+                or not re.fullmatch(r"[a-zA-Z0-9._+-]+", kernel)):
+            raise StageError("COMPAT_TABLE_INVALID", "compatibility.conf profile, device or kernel invalid")
+        if profile in profiles:
+            raise StageError("COMPAT_TABLE_INVALID", "compatibility.conf duplicate profile")
         if (not re.fullmatch(r"[0-9a-f]{64}", cfg_sha)
                 or any(not re.fullmatch(r"[0-9a-f]{64}", h) for h in ko_hashes)
                 or len(set(ko_hashes)) != len(ko_hashes)):
             raise StageError("COMPAT_TABLE_INVALID", "compatibility.conf hash invalid or duplicate")
         profiles.add(profile)
-        kernels[kernel] = cfg_sha
+        for dev in devs:
+            key = f"{dev}|{kernel}"
+            if key in kernels:
+                raise StageError("COMPAT_TABLE_INVALID", "compatibility.conf duplicate device+kernel")
+            kernels[key] = cfg_sha
     if not kernels:
         raise StageError("COMPAT_TABLE_INVALID", "compatibility.conf has no entries")
     return kernels
@@ -83,7 +92,7 @@ class Candidate:
     sha256: str
     path: Path
     reviewed_kernels: dict[str, str] = field(
-        default_factory=lambda: {EXPECTED_KERNEL: STOCK_CFG_SHA}
+        default_factory=lambda: {f"dijun|{EXPECTED_KERNEL}": STOCK_CFG_SHA}
     )
 
 
@@ -421,10 +430,14 @@ def probe_device(candidate: Candidate, *, adb: str | None = None, serial: str, p
     if "context=u:r:ksu:s0" not in ksu_id:
         failures.append("ksu_context")
     fingerprint = read("fingerprint", "getprop ro.build.fingerprint")
-    if not FINGERPRINT_RE.fullmatch(fingerprint):
+    fp_match = FINGERPRINT_RE.fullmatch(fingerprint)
+    device = ""
+    if not fp_match or fp_match.group(1) != fp_match.group(2):
         failures.append("fingerprint")
+    else:
+        device = fp_match.group(1)
     kernel = read("kernel", "uname -r")
-    if kernel not in candidate.reviewed_kernels:
+    if f"{device}|{kernel}" not in candidate.reviewed_kernels:
         failures.append("kernel")
     selinux = read("selinux", "getenforce")
     if selinux != "Enforcing":
@@ -447,6 +460,7 @@ def probe_device(candidate: Candidate, *, adb: str | None = None, serial: str, p
         "uid": uid,
         "ksu_id": ksu_id,
         "fingerprint": fingerprint,
+        "device": device,
         "kernel": kernel,
         "selinux": selinux,
         "boot_id": boot_id,
@@ -615,7 +629,8 @@ def execute(candidate: Candidate, *, adb: str | None = None, serial: str, port: 
         "RESTORE_STATUS_FAILED")
     if "state=restored" not in status or "active_tx=none" not in status:
         raise StageError("RESTORE_INCOMPLETE", "old transaction is not fully restored")
-    expected_cfg_sha = candidate.reviewed_kernels.get(str(probe["kernel"]), STOCK_CFG_SHA)
+    expected_cfg_sha = candidate.reviewed_kernels.get(
+        f"{probe.get('device', 'dijun')}|{probe['kernel']}", STOCK_CFG_SHA)
     cfg_hash = shell("sha256sum /odm/firmware/wifi.cfg", "STOCK_CFG_CHECK_FAILED")
     if not cfg_hash.startswith(expected_cfg_sha + " "):
         raise StageError("STOCK_CFG_MISMATCH", "wifi.cfg did not return to stock")

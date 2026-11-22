@@ -31,14 +31,23 @@ final class HotspotRequestPayload {
             if (("start-6g-" + width).equals(action)) {
                 return new Profile("start", "6g", width);
             }
+            if (("start-local-6g-" + width).equals(action)) {
+                return new Profile("start-local", "6g", width);
+            }
         }
         for (String width : new String[] {"20", "40", "80"}) {
             if (("start-5g-" + width).equals(action)) {
                 return new Profile("start", "5g", width);
             }
+            if (("start-local-5g-" + width).equals(action)) {
+                return new Profile("start-local", "5g", width);
+            }
         }
         if ("start-2g-20".equals(action)) {
             return new Profile("start", "2g", "20");
+        }
+        if ("start-local-2g-20".equals(action)) {
+            return new Profile("start-local", "2g", "20");
         }
         throw new IllegalArgumentException("unsupported action");
     }

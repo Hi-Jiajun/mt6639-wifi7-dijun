@@ -129,7 +129,7 @@ recover() {
             [ -e "/sys/class/net/$IF/ifindex" ] &&
             [ "$(cat "/sys/class/net/$IF/ifindex")" = "$(cat "$D/interface.index")" ]; then
             hash=$(sha256sum "$D/native-tether.dex")
-            if [ "${hash%% *}" = 71c2ff994fcc2f2ede23eeb361b9d153d9a72c00240ad90c677deb23827fea56 ]; then
+            if [ "${hash%% *}" = de826266991f4715b57274575c3244e3a0d43d8697cf260979569c0ab04d322c ]; then
                 stop_rc=0
                 CLASSPATH="$D/native-tether.dex" timeout 12 app_process /system/bin NativeTether stop "$D" > "$D/tether.stop" 2>&1 || stop_rc=1
                 tether_active=unknown
@@ -487,9 +487,14 @@ recover() {
             native_terminal=1 ;;
         *) native_terminal=0 ;;
     esac
+    station_terminal=0
+    case "$station_state" in
+        not_required_*) station_terminal=1 ;;
+    esac
     if [ "$rc" != 0 ] && [ "$native_terminal" = 1 ] &&
         [ "$interface_state" = absent ] && [ "$driver_state" = restored ] &&
-        [ "$station_state" = verified ] && [ "$journal_ok" = 1 ]; then
+        { [ "$station_state" = verified ] || [ "$station_terminal" = 1 ]; } &&
+        [ "$journal_ok" = 1 ]; then
         printf 'terminal_after_native_exit original_rc=%s native=%s\n' \
             "$rc" "$native_state" > "$D/recovery.note"
         rc=0
@@ -525,13 +530,36 @@ flock -n 8 8>&8 || exit 75
 # every retry die here with a bare exit 73.
 rm -f "$D/claimed"
 (set -C; : > "$D/claimed") 2>/dev/null || exit 73
-[ "$(getprop ro.build.fingerprint)" = 'Xiaomi/dijun/dijun:17/CP2A.260605.016/OS4.0.0.19.XODCNXM:user/release-keys' ] || exit 69
+compat_hash_ok() {
+    kind=$1 dev=$2 sha=$3
+    table=$D/compatibility.conf
+    [ -f "$table" ] && [ ! -L "$table" ] && [ "$(stat -c %u "$table")" = 0 ] || return 1
+    awk -v kind="$kind" -v dev="$dev" -v sha="$sha" '
+        /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+        NF != 3 { invalid=1; next }
+        $1 !~ /^(ko|tethering_jar)$/ || length($3) != 64 || $3 ~ /[^0-9a-f]/ { invalid=1; next }
+        {
+            n = split($2, devs, ",")
+            if (n < 1) { invalid=1; next }
+            delete seen_row_dev
+            dev_ok = 0
+            for (i = 1; i <= n; i++) {
+                if (devs[i] !~ /^(dijun|violin|jinghu)$/ || seen_row_dev[devs[i]]++) invalid=1
+                if (devs[i] == dev) dev_ok = 1
+            }
+            if ($1 == kind && dev_ok && $3 == sha) matched = 1
+        }
+        END { exit((!invalid && matched) ? 0 : 1) }
+    ' "$table"
+}
+DEVICE=$(getprop ro.product.device)
+case "$DEVICE" in dijun|violin|jinghu) ;; *) exit 69 ;; esac
 KO_PATH=/vendor/lib/modules/wlan_drv_gen4m_eap_6639.ko
 if [ ! -e "$KO_PATH" ] && [ ! -L "$KO_PATH" ]; then
     KO_PATH=/vendor_dlkm/lib/modules/wlan_drv_gen4m_eap_6639.ko
 fi
 hash=$(sha256sum "$KO_PATH") || exit 69
-[ "${hash%% *}" = 54619c2e9521fc084edd4ec93282715ac10e716ad4ae0a27ec5588fb64e618ea ] || exit 69
+compat_hash_ok ko "$DEVICE" "${hash%% *}" || exit 69
 hash=$(sha256sum "$D/hostapd") || exit 69
 [ "${hash%% *}" = 15023e3bfe6b08415ebcc92479c0cd4fb14adb57b9010266af73bcc1bdc7bc2b ] || exit 69
 hash=$(sha256sum "$D/hostapd_cli") || exit 69
@@ -547,7 +575,7 @@ hostapd_svc=$(getprop init.svc.hostapd)
     [ ! -e "/sys/class/net/$IF" ] ||
     { printf 'hostapd_svc=%s_if=%s\n' "$hostapd_svc" \
         "$( [ -e "/sys/class/net/$IF" ] && echo present || echo absent)" > "$D/failure"; exit 75; }
-[ -s "$D/$UPSTREAM_KEY_NAME" ] && [ -s "$D/ap.conf" ] || exit 66
+[ -s "$D/ap.conf" ] || exit 66
 for file in "$PROFILE" "$D/ap.key" "$D/ap.conf"; do
     [ -f "$file" ] && [ ! -L "$file" ] && [ "$(stat -c %u "$file")" = 0 ] || exit 77
 done
@@ -581,9 +609,9 @@ grep -Fxq ap_state=11 "$D/framework.before" || {
 }
 if [ "$OP" = run-tether ]; then
     hash=$(sha256sum /apex/com.android.tethering/javalib/framework-tethering.jar) || exit 69
-    [ "${hash%% *}" = 0b6f6c859301dae3276b9375c3b75333168dc5b76292ed9da03e29b59fc887bb ] || exit 69
+    compat_hash_ok tethering_jar "$DEVICE" "${hash%% *}" || exit 69
     hash=$(sha256sum "$D/native-tether.dex") || exit 69
-    [ "${hash%% *}" = 71c2ff994fcc2f2ede23eeb361b9d153d9a72c00240ad90c677deb23827fea56 ] || exit 69
+    [ "${hash%% *}" = de826266991f4715b57274575c3244e3a0d43d8697cf260979569c0ab04d322c ] || exit 69
     CLASSPATH="$D/native-tether.dex" timeout 8 app_process /system/bin NativeTether inspect > "$D/tether.api" 2>&1 || exit 69
     timeout 5 dumpsys tethering --short > "$D/tether.before" 2>&1 || exit 69
     grep -Fxq '    Upstream wanted: false' "$D/tether.before" &&
@@ -596,14 +624,15 @@ fi
 #             documented upstream AP, which also provides the uplink
 #   wifi-any  the STA is connected to some other network; the uplink is wlan0
 #             and the exact upstream identity is not asserted
-#   cell      no Wi-Fi STA connection; the WLAN driver stays loaded only
-#             because Wi-Fi itself is enabled, and cellular data is the uplink
-#   auto      decide per start from the current STA state (see below)
+#   wired     no Wi-Fi STA connection; USB/Ethernet adapter is the uplink
+#   cell      no Wi-Fi STA connection; cellular data is the uplink
+#   local     no Wi-Fi STA connection; LocalHotspotState local-only AP (tablets without cellular/wired)
+#   auto      decide per start from the current STA/uplink state (see below)
 # The resolved mode is recorded in $D/upstream.mode so the guardian and any
 # later recover run honour the contract this session actually started with.
 UPSTREAM_MODE_REQUEST=${MT6639_HOTSPOT_UPSTREAM:-auto}
 case "$UPSTREAM_MODE_REQUEST" in
-    wifi|wifi-any|cell|auto) ;;
+    wifi|wifi-any|cell|auto|wired|local) ;;
     *) printf 'bad_upstream_mode=%s\n' "$UPSTREAM_MODE_REQUEST" > "$D/failure"; exit 64 ;;
 esac
 timeout 5 cmd wifi status > "$D/sta.before" 2>&1 ||
@@ -611,45 +640,74 @@ timeout 5 cmd wifi status > "$D/sta.before" 2>&1 ||
 UPSTREAM_MODE=$UPSTREAM_MODE_REQUEST
 if [ "$UPSTREAM_MODE" = auto ]; then
     if grep -Fq "Wifi is connected to \"$UPSTREAM_SSID\"" "$D/sta.before" &&
-        grep -Fq 'Supplicant state: COMPLETED' "$D/sta.before"; then
+        grep -Fq 'Supplicant state: COMPLETED' "$D/sta.before" &&
+        [ -s "$D/$UPSTREAM_KEY_NAME" ]; then
         UPSTREAM_MODE=wifi
     elif grep -Fq 'Wifi is connected to "' "$D/sta.before" &&
         grep -Fq 'Supplicant state: COMPLETED' "$D/sta.before"; then
         UPSTREAM_MODE=wifi-any
     else
-        UPSTREAM_MODE=cell
+        timeout 5 ip -4 addr show > "$D/uplink.addr" 2>&1 || true
+        if grep -Eq 'inet [0-9.]+/.* (eth|usb|rndis|ncm)[0-9]*' "$D/uplink.addr"; then
+            UPSTREAM_MODE=wired
+        elif [ -n "$(getprop gsm.version.baseband 2>/dev/null)" ] ||
+            timeout 5 ip link show 2>/dev/null | grep -Eq '^[0-9]+: (rmnet|ccmni|wwan)[0-9]*[:@]'; then
+            UPSTREAM_MODE=cell
+        else
+            UPSTREAM_MODE=local
+        fi
     fi
 fi
 printf '%s\n' "$UPSTREAM_MODE" > "$D/upstream.mode" ||
     { printf 'upstream_mode_unwritable\n' > "$D/failure"; exit 74; }
+if [ "$UPSTREAM_MODE" = local ]; then
+    printf 'local\n' > "$D/tether.scope" || { printf 'tether_scope_unwritable\n' > "$D/failure"; exit 74; }
+else
+    printf 'global\n' > "$D/tether.scope" || { printf 'tether_scope_unwritable\n' > "$D/failure"; exit 74; }
+fi
 case "$UPSTREAM_MODE" in
     cell) UPSTREAM_RE='Current upstream interface\(s\): \[(rmnet|wwan|ccmni|seth|eth)' ;;
+    wired) UPSTREAM_RE='Current upstream interface\(s\): \[(eth|usb|rndis|ncm)' ;;
+    local) UPSTREAM_RE='' ;;
     *) UPSTREAM_RE='Current upstream interface\(s\): \[wlan0\]' ;;
 esac
-if [ "$UPSTREAM_MODE" = cell ]; then
+if [ "$UPSTREAM_MODE" = cell ] || [ "$UPSTREAM_MODE" = wired ] || [ "$UPSTREAM_MODE" = local ]; then
     # An AP interface can only be created while the WLAN driver is loaded, and
     # this driver is unloaded when Wi-Fi itself is turned off. A disconnected,
-    # still-enabled STA is the state this mode is built for.
+    # still-enabled STA is the state these modes are built for.
     grep -Fxq 'Wifi is enabled' "$D/sta.before" ||
         { printf 'wifi_disabled_driver_unavailable\n' > "$D/failure"; exit 69; }
     if grep -Fq 'Wifi is connected to "' "$D/sta.before"; then
-        printf 'sta_connected_in_cell_mode\n' > "$D/failure"
+        if [ "$UPSTREAM_MODE" = cell ]; then
+            printf 'sta_connected_in_cell_mode\n' > "$D/failure"
+        else
+            printf 'sta_connected_in_%s_mode\n' "$UPSTREAM_MODE" > "$D/failure"
+        fi
         exit 69
     fi
-    # Android tears the cellular data connection down while Wi-Fi carries the
-    # default network, so the rmnet address only appears after the STA drops.
-    # Give the modem a bounded window to attach before failing closed.
-    n=0
-    while :; do
-        if timeout 5 ip -4 addr show > "$D/cell.addr" 2>&1 &&
-            grep -Eq 'inet [0-9.]+/.* (rmnet|ccmni|wwan)[0-9]*' "$D/cell.addr"; then
-            break
+    if [ "$UPSTREAM_MODE" = cell ]; then
+        # Android tears the cellular data connection down while Wi-Fi carries the
+        # default network, so the rmnet address only appears after the STA drops.
+        # Give the modem a bounded window to attach before failing closed.
+        n=0
+        while :; do
+            if timeout 5 ip -4 addr show > "$D/cell.addr" 2>&1 &&
+                grep -Eq 'inet [0-9.]+/.* (rmnet|ccmni|wwan)[0-9]*' "$D/cell.addr"; then
+                break
+            fi
+            [ "$n" -lt 10 ] || { printf 'cellular_data_unavailable\n' > "$D/failure"; exit 69; }
+            sleep 1
+            n=$((n+1))
+        done
+    elif [ "$UPSTREAM_MODE" = wired ]; then
+        if ! { timeout 5 ip -4 addr show > "$D/wired.addr" 2>&1 &&
+            grep -Eq 'inet [0-9.]+/.* (eth|usb|rndis|ncm)[0-9]*' "$D/wired.addr"; }; then
+            printf 'wired_uplink_unavailable\n' > "$D/failure"
+            exit 69
         fi
-        [ "$n" -lt 10 ] || { printf 'cellular_data_unavailable\n' > "$D/failure"; exit 69; }
-        sleep 1
-        n=$((n+1))
-    done
+    fi
 elif [ "$UPSTREAM_MODE" = wifi ]; then
+    [ -s "$D/$UPSTREAM_KEY_NAME" ] || { printf 'upstream_key_missing %s\n' "$UPSTREAM_KEY_NAME" > "$D/failure"; exit 66; }
     if ! { grep -Fxq "Wifi is connected to \"$UPSTREAM_SSID\"" "$D/sta.before" &&
         grep -Fq "BSSID: $UPSTREAM_BSSID" "$D/sta.before" &&
         grep -Fq "Frequency: ${UPSTREAM_FREQ}MHz" "$D/sta.before" &&
@@ -681,7 +739,7 @@ fi
 # ("CTRL-EVENT-CHANNEL-SWITCH freq=5180"), so single-channel concurrency is
 # enforced below 6GHz. Refuse that combination up front instead of creating an
 # interface that silently stops being a 6GHz BSS.
-if [ "$BAND" = 6g ] && [ "$UPSTREAM_MODE" != cell ]; then
+if [ "$BAND" = 6g ] && [ "$UPSTREAM_MODE" != cell ] && [ "$UPSTREAM_MODE" != wired ] && [ "$UPSTREAM_MODE" != local ]; then
     sta_freq=$(sed -n 's/.*Frequency: \([0-9][0-9]*\)MHz.*/\1/p' "$D/sta.before" | head -1)
     case "$sta_freq" in
         ''|*[!0-9]*) printf 'sta_frequency_unknown\n' > "$D/failure"; exit 69 ;;
@@ -691,9 +749,21 @@ if [ "$BAND" = 6g ] && [ "$UPSTREAM_MODE" != cell ]; then
         exit 69
     fi
 fi
+# 5GHz AP requires a 2.4GHz STA when the STA is connected, otherwise DBS/SCC moves
+# the AP off 5180MHz.
+if [ "$BAND" = 5g ] && [ "$UPSTREAM_MODE" != cell ] && [ "$UPSTREAM_MODE" != wired ] && [ "$UPSTREAM_MODE" != local ]; then
+    sta_freq=$(sed -n 's/.*Frequency: \([0-9][0-9]*\)MHz.*/\1/p' "$D/sta.before" | head -1)
+    case "$sta_freq" in
+        ''|*[!0-9]*) printf 'sta_frequency_unknown\n' > "$D/failure"; exit 69 ;;
+    esac
+    if [ "$sta_freq" -lt 2400 ] || [ "$sta_freq" -gt 2484 ]; then
+        printf 'sta_band_incompatible_with_5g sta_freq=%s\n' "$sta_freq" > "$D/failure"
+        exit 69
+    fi
+fi
 # Same single-channel rule below 6GHz for the 2.4GHz C02 profile: an AP on
 # 2437 next to a 2.4GHz STA would be relocated to the STA's channel.
-if [ "$BAND" = 2g ] && [ "$UPSTREAM_MODE" != cell ]; then
+if [ "$BAND" = 2g ] && [ "$UPSTREAM_MODE" != cell ] && [ "$UPSTREAM_MODE" != wired ] && [ "$UPSTREAM_MODE" != local ]; then
     sta_freq=$(sed -n 's/.*Frequency: \([0-9][0-9]*\)MHz.*/\1/p' "$D/sta.before" | head -1)
     case "$sta_freq" in
         ''|*[!0-9]*) printf 'sta_frequency_unknown\n' > "$D/failure"; exit 69 ;;
@@ -780,15 +850,21 @@ if [ "$action_rc" = 0 ]; then
         : > "$D/tether.intent"
         CLASSPATH="$D/native-tether.dex" timeout 12 app_process /system/bin NativeTether start "$D" > "$D/tether.start" 2>&1 || action_rc=1
         n=0
+        tether_ready() {
+            if [ "$UPSTREAM_MODE" = local ]; then
+                grep -Eq "^[[:space:]]*$IF - LocalHotspotState - lastError = 0$" "$D/tether.active"
+            else
+                grep -Eq "^[[:space:]]*$IF - TetheredState - lastError = 0$" "$D/tether.active" &&
+                    grep -Fxq '    Upstream wanted: true' "$D/tether.active" &&
+                    grep -Eq "$UPSTREAM_RE" "$D/tether.active"
+            fi
+        }
         while [ "$action_rc" = 0 ] && [ "$n" -lt 8 ]; do
             timeout 5 dumpsys tethering --short > "$D/tether.active" 2>&1 || action_rc=1
-            grep -Eq "^[[:space:]]*$IF - TetheredState - lastError = 0$" "$D/tether.active" &&
-                grep -Eq "$UPSTREAM_RE" "$D/tether.active" && break
+            tether_ready && break
             sleep 1; n=$((n+1))
         done
-        if grep -Eq "^[[:space:]]*$IF - TetheredState - lastError = 0$" "$D/tether.active" &&
-            grep -Fxq '    Upstream wanted: true' "$D/tether.active" &&
-            grep -Eq "$UPSTREAM_RE" "$D/tether.active"; then
+        if tether_ready; then
             :
         else
             action_rc=1

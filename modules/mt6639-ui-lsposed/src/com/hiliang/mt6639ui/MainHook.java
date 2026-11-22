@@ -32,8 +32,6 @@ public final class MainHook implements IXposedHookLoadPackage {
     private static final String TAG = "MT6639UI";
     private static final String TARGET_PACKAGE = "com.android.settings";
     private static final String TARGET_PROCESS = "com.android.settings";
-    private static final String EXPECTED_FINGERPRINT =
-            "Xiaomi/dijun/dijun:17/CP2A.260605.016/OS4.0.0.19.XODCNXM:user/release-keys";
 
     private static final String[] ENTRY_PREFERENCES = new String[] {
             "com.android.settings.wifi.MiuiWifiEntryPreference"
@@ -65,11 +63,20 @@ public final class MainHook implements IXposedHookLoadPackage {
     private static final String[][] HOTSPOT_START2G_ACTIONS = new String[][] {
             {"20", "启动 2.4 GHz 热点（20 MHz）", "HE 11ax 档；可与 5/6GHz 上游并存"}
     };
+    private static final String[][] HOTSPOT_START_LOCAL_ACTIONS = new String[][] {
+            {"6g", "20", "本地直连 6 GHz · 20 MHz · 纯局域网热点（无外网上游）"},
+            {"6g", "80", "本地直连 6 GHz · 80 MHz · 纯局域网热点（无外网上游）"},
+            {"6g", "160", "本地直连 6 GHz · 160 MHz · 纯局域网热点（无外网上游）"},
+            {"6g", "320", "本地直连 6 GHz · 320 MHz · 纯局域网热点（无外网上游）"},
+            {"5g", "80", "本地直连 5 GHz · 80 MHz · 纯局域网热点（无外网上游）"},
+            {"2g", "20", "本地直连 2.4 GHz · 20 MHz · 纯局域网热点（无外网上游）"}
+    };
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
         log("injected pkg=" + lpparam.packageName
                 + " process=" + lpparam.processName
+                + " device=" + Build.DEVICE
                 + " sdk=" + Build.VERSION.SDK_INT
                 + " loader=" + shortLoader(lpparam.classLoader));
 
@@ -77,9 +84,8 @@ public final class MainHook implements IXposedHookLoadPackage {
                 || !TARGET_PROCESS.equals(lpparam.processName)) {
             return;
         }
-        if (Build.VERSION.SDK_INT != 37
-                || !EXPECTED_FINGERPRINT.equals(Build.FINGERPRINT)) {
-            log("SKIP unsupported build fingerprint=" + Build.FINGERPRINT);
+        if (!DeviceGate.isSupported(Build.DEVICE, Build.VERSION.SDK_INT)) {
+            log("SKIP unsupported device=" + Build.DEVICE + " sdk=" + Build.VERSION.SDK_INT);
             return;
         }
 
@@ -235,11 +241,11 @@ public final class MainHook implements IXposedHookLoadPackage {
                 "运行 2.4GHz STA+AP 并发验收");
         Object context = XposedHelpers.callMethod(fragment, "getContext");
         XposedHelpers.callMethod(status, "setSelectable", false);
-        XposedHelpers.callMethod(start, "setSummary", "选择 6 GHz 带宽后启动固定参数热点");
-        XposedHelpers.callMethod(stop, "setSummary", "停止实验热点并等待原 LabNet-6G 连接恢复");
+        XposedHelpers.callMethod(start, "setSummary", "选择热点频段与带宽后启动实验热点");
+        XposedHelpers.callMethod(stop, "setSummary", "停止实验热点并恢复原网络状态");
         XposedHelpers.callMethod(
                 c02, "setSummary",
-                "一次性 C02：保留 LabNet-6G STA，启动 2.4GHz/20MHz/11ax；结束后自动恢复");
+                "一次性 C02：保留 6GHz STA 上游，启动 2.4GHz/20MHz/11ax；结束后自动恢复");
         installHotspotStartPicker(
                 start, classLoader, (Context) context);
         installHotspotAction(stop, classLoader, context, "stop");
@@ -365,6 +371,12 @@ public final class MainHook implements IXposedHookLoadPackage {
                 actions.add("start-2g-" + action[0]);
             }
         }
+        if (snapshot.canStartLocal()) {
+            for (String[] action : HOTSPOT_START_LOCAL_ACTIONS) {
+                labels.add(action[2]);
+                actions.add("start-local-" + action[0] + "-" + action[1]);
+            }
+        }
         if (labels.isEmpty()) return;
         final int[] selected = new int[] {0};
         final CharSequence[] items = labels.toArray(new CharSequence[0]);
@@ -423,6 +435,8 @@ public final class MainHook implements IXposedHookLoadPackage {
         boolean eligible;
         if ("stop".equals(operation)) {
             eligible = snapshot.canStop();
+        } else if (operation.startsWith("start-local-")) {
+            eligible = snapshot.canStartLocal();
         } else if ("c02-24g".equals(operation) || operation.startsWith("start-6g-")) {
             eligible = snapshot.canStart6g();
         } else if (operation.startsWith("start-2g-")) {
@@ -457,12 +471,12 @@ public final class MainHook implements IXposedHookLoadPackage {
         if (status != null) XposedHelpers.callMethod(status, "setSummary", snapshot.summary + notice);
         if (start != null) XposedHelpers.callMethod(start, "setSummary", snapshot.startHint() + notice);
         if (stop != null) XposedHelpers.callMethod(stop, "setSummary",
-                "停止实验热点并等待原 LabNet-6G 连接恢复" + notice);
+                "停止实验热点并恢复原网络状态" + notice);
         if (c02 != null) XposedHelpers.callMethod(c02, "setSummary",
-                "一次性 C02：保留 LabNet-6G STA，启动 2.4GHz/20MHz/11ax；结束后自动恢复" + notice);
+                "一次性 C02：保留 6GHz STA 上游，启动 2.4GHz/20MHz/11ax；结束后自动恢复" + notice);
         updateActionPreference(start, snapshot.isIdle(), !waiting && snapshot.canStart());
         updateActionPreference(stop, snapshot.canStop(), !waiting && snapshot.canStop());
-        updateActionPreference(c02, snapshot.isIdle(), !waiting && snapshot.canStart6g());
+        updateActionPreference(c02, snapshot.isIdle() && snapshot.canRunC02(), !waiting && snapshot.canRunC02());
     }
 
     private static void updateActionPreference(

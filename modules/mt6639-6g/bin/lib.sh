@@ -9,6 +9,7 @@ STATE=${STATE:-$WORK/state}
 
 # 路径与哈希在测试模式下才允许覆盖，生产路径写死，避免配置错误指向别的文件。
 if [ "${MT6639_TEST_MODE:-0}" = 1 ]; then
+    DEVICE_NAME=${DEVICE_NAME:-fixture}
     COMPAT_PROFILE=fixture
     COMPAT_ERROR=
     CFG=${CFG:?test mode requires CFG}
@@ -17,6 +18,7 @@ if [ "${MT6639_TEST_MODE:-0}" = 1 ]; then
     STOCK_KO_SHA=${STOCK_KO_SHA:?test mode requires STOCK_KO_SHA}
     KERNEL_GUARD=${KERNEL_GUARD:-$(uname -r)}
 else
+    DEVICE_NAME=$(getprop ro.product.device 2>/dev/null || printf unknown)
     CFG=/odm/firmware/wifi.cfg
     STOCK_KO=/vendor/lib/modules/wlan_drv_gen4m_eap_6639.ko
     # Modern vendor_dlkm mount layouts need not expose the old vendor alias.
@@ -34,6 +36,7 @@ BOOT_GUARD_FILE=$WORK/boot_id
 SCAN_GUARD_FILE=$WORK/scan_before
 ACTIVE_TX_FILE=$WORK/active_tx
 ACTIVE_PID_FILE=$WORK/active_pid
+COUNTRY_CONF=$WORK/country.conf
 
 if [ "${MT6639_TEST_MODE:-0}" = 1 ] && [ -n "${NATIVE:-}" ]; then
     :
@@ -82,8 +85,70 @@ log() {
 
 file_sha() { sha256sum "$1" 2>/dev/null | cut -d ' ' -f 1; }
 
+valid_target_country() {
+    case "$1" in
+        auto|keep) return 0 ;;
+        CN) return 1 ;;
+        [A-Z][A-Z]) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+is_6g_region() {
+    case "$1" in
+        US|CA|GB|DE|FR|NL|CH|SE|JP|KR|TW|HK|SG|AU|NZ) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+read_target_country() {
+    if [ -n "${TARGET_COUNTRY:-}" ]; then
+        valid_target_country "$TARGET_COUNTRY" || return 1
+        printf '%s\n' "$TARGET_COUNTRY"
+        return 0
+    fi
+    if [ -f "$COUNTRY_CONF" ] && [ ! -L "$COUNTRY_CONF" ]; then
+        tc_val=$(sed -n 's/^TARGET_COUNTRY=\([a-zA-Z]*\)$/\1/p' "$COUNTRY_CONF" 2>/dev/null | head -1)
+        valid_target_country "${tc_val:-}" || return 1
+        printf '%s\n' "$tc_val"
+        return 0
+    fi
+    printf 'auto\n'
+}
+
+resolve_target_country() {
+    rtc_pref=$1
+    rtc_over_flag=$2
+    rtc_over_code=$3
+    rtc_base_code=$4
+    RESOLVED_MUTATE=0
+    RESOLVED_TARGET=
+    valid_target_country "$rtc_pref" || return 1
+    case "$rtc_pref" in
+        keep)
+            return 0
+            ;;
+        auto)
+            if is_6g_region "$rtc_base_code"; then
+                return 0
+            fi
+            RESOLVED_MUTATE=1
+            RESOLVED_TARGET=US
+            return 0
+            ;;
+        *)
+            if [ "$rtc_over_flag" = 1 ] && [ "$rtc_over_code" = "$rtc_pref" ]; then
+                return 0
+            fi
+            RESOLVED_MUTATE=1
+            RESOLVED_TARGET=$rtc_pref
+            return 0
+            ;;
+    esac
+}
+
 if [ "${MT6639_TEST_MODE:-0}" != 1 ]; then
-    select_runtime_profile "$(uname -r)" "$MODDIR/compatibility.conf" "$(file_sha "$STOCK_KO")" || :
+    select_runtime_profile "$DEVICE_NAME" "$(uname -r)" "$MODDIR/compatibility.conf" "$(file_sha "$STOCK_KO")" || :
 fi
 
 # root 在 u:r:ksu:s0 域里直接调 cmd wifi / settings 会 can't find service，

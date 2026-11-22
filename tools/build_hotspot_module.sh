@@ -26,7 +26,7 @@ expect() {
 }
 expect 15023e3bfe6b08415ebcc92479c0cd4fb14adb57b9010266af73bcc1bdc7bc2b "$HOSTDIR/hostapd"
 expect 2da7d467b7b2628c4da40fb5ccc101b17f8b279bd9c038c32e4ae6e5b2924a42 "$HOSTDIR/hostapd_cli"
-expect 71c2ff994fcc2f2ede23eeb361b9d153d9a72c00240ad90c677deb23827fea56 "$NATIVE_DEX"
+expect de826266991f4715b57274575c3244e3a0d43d8697cf260979569c0ab04d322c "$NATIVE_DEX"
 expect d20169f8733dc3bd2813806b3deda79e84b497e40e4a0f82bb97cd585844d655 "$DELETE_IFINDEX"
 expect 7ff17f05008e77535dacac13c5c2f216c664bc26403d6cbfe7da7fb9b7c04017 "$PROFILE_DEX"
 expect 7488253f5f93718f196033aed6ed8b6ead27b300fd2b0a07c6318b64cb73dfca "$ROOT/tools/softap_native_config.sh"
@@ -56,7 +56,7 @@ chmod 0755 "$TMP/module/customize.sh" "$TMP/module/action.sh" "$TMP/module/servi
     "$TMP/module/bin/softap_24g_once.sh" \
     "$TMP/module/bin/twt_recover.sh" "$TMP/module/bin/hostapd" "$TMP/module/bin/hostapd_cli"
 chmod 0755 "$TMP/module/bin/delete_ifindex"
-chmod 0644 "$TMP/module/bin/native-tether.dex" "$TMP/module/bin/softap-profile.dex"
+chmod 0644 "$TMP/module/compatibility.conf" "$TMP/module/bin/native-tether.dex" "$TMP/module/bin/softap-profile.dex"
 
 if find "$TMP/module" -type l | grep -q .; then
     echo 'REJECT symlink_in_module' >&2
@@ -70,7 +70,7 @@ fi
 
 (
     cd "$TMP/module"
-    find bin -type f -print | LC_ALL=C sort | xargs sha256sum > SHA256SUMS
+    find compatibility.conf bin -type f -print | LC_ALL=C sort | xargs sha256sum > SHA256SUMS
 )
 {
     echo "source_commit=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"

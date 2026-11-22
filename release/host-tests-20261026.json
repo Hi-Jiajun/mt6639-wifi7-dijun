@@ -57,6 +57,10 @@
     {"id": "f01_f10_matrix", "command": ["/usr/bin/python3", "tests/test_f01_f10_matrix.py"], "timeout_s": 30},
     {"id": "dup_capture_selftest", "command": ["/usr/bin/python3", "tools/dup_capture.py", "--selftest"], "timeout_s": 60},
     {"id": "ofdma_probe_dryrun", "command": ["/usr/bin/python3", "tools/ofdma_probe.py", "--dry-run"], "timeout_s": 60},
-    {"id": "f04_matrix_selftest", "command": ["/usr/bin/python3", "tools/f04_matrix.py", "--selftest"], "timeout_s": 60}
+    {"id": "f04_matrix_selftest", "command": ["/usr/bin/python3", "tools/f04_matrix.py", "--selftest"], "timeout_s": 60},
+    {"id": "onboard_mt6639_rom", "command": ["/usr/bin/python3", "tests/test_onboard_mt6639_rom.py"], "timeout_s": 60},
+    {"id": "remote_tablet_session", "command": ["/usr/bin/python3", "tests/test_remote_tablet_session.py"], "timeout_s": 60},
+    {"id": "remote_kit", "command": ["/usr/bin/python3", "tests/test_remote_kit.py"], "timeout_s": 60},
+    {"id": "debug_collector", "command": ["/usr/bin/python3", "tests/test_debug_collector.py"], "timeout_s": 30}
   ]
 }

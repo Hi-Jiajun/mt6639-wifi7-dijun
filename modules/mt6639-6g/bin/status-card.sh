@@ -88,6 +88,7 @@ fi
 [ "$driver" = 匹配 ] || headline=驱动不匹配
 [ "$driver" != 不可读 ] || headline=驱动不可读
 [ "$kernel" = 匹配 ] || headline=内核不匹配
+[ "$COMPAT_ERROR" != wrong_device ] || headline=设备不匹配
 [ "$COMPAT_ERROR" != compatibility_table_invalid ] || headline=兼容表无效
 if [ -e "$MODDIR/disable" ]; then headline=模块已禁用; fi
 if [ -e "$MODDIR/remove" ]; then headline=模块待移除; fi

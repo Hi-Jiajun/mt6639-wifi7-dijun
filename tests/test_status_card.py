@@ -183,7 +183,8 @@ esac
         self.assertEqual(self.card("update").returncode, 0)
         self.assertEqual(self.verify(), 0)
         self.assertEqual(before, (self.mod / "SHA256SUMS").read_bytes())
-        text = (self.mod / "module.prop").read_text().replace("versionCode=22", "versionCode=999")
+        text = (self.mod / "module.prop").read_text().replace("versionCode=24", "versionCode=999")
+        self.assertIn("versionCode=999", text)
         (self.mod / "module.prop").write_text(text)
         self.assertNotEqual(self.verify(), 0)
 

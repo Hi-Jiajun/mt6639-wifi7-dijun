@@ -1,0 +1,251 @@
+{
+  "scope": "Offline static comparison of official HyperOS 4 & HyperOS 3 ROM components for Xiaomi Pad 7S Pro (violin) and Xiaomi Pad 7 Ultra (jinghu); no physical tablet or wireless operation.",
+  "reference_dijun_ko_sha256": "54619c2e9521fc084edd4ec93282715ac10e716ad4ae0a27ec5588fb64e618ea",
+  "reference_dijun_cfg_sha256": "e4dcd846f31077864932b499d462cfd6a8ca1befc6386f502813e0ba053cc154",
+  "targets": {
+    "violin-OS4.0.6.0.XOTCNXM": {
+      "device": "violin",
+      "rom_version": "OS4.0.6.0.XOTCNXM",
+      "kernel_release": "6.18.21-android17-5-g284297031c53-abogki553682993-4k",
+      "statx_mnt_id_unique_supported": true,
+      "statx_evidence": "kernel>=6.8",
+      "ko_path": "/vendor_dlkm/lib/modules/wlan_drv_gen4m_eap_6639.ko",
+      "ko_sha256": "f226384e73810a639b7fc6a335367cce2345a7726aac3dd66515493952987c22",
+      "ko_16_functions_match_reference": true,
+      "ko_comparison_reference_sha256": "54619c2e9521fc084edd4ec93282715ac10e716ad4ae0a27ec5588fb64e618ea",
+      "wifi_cfg": {
+        "sha256": "71e1ebd0fce77dab26ac7339db1e612ed107e7d404667d57e9c008af1e941a89",
+        "size": 2399,
+        "line_count": 132,
+        "disallow_band6g_1_count": 1,
+        "disallow_band6g_0_count": 0,
+        "sta_eht": [
+          "StaEHT 1"
+        ],
+        "ap_eht": [
+          "ApEHT 0"
+        ],
+        "compatible_single_line_flip": true
+      },
+      "vendor_bt_props": {
+        "ro.bluetooth.leaudio_offload.supported": "true",
+        "persist.bluetooth.leaudio_offload.disabled": "false",
+        "ro.product.vendor.device": "mivendor"
+      },
+      "bluetooth_apk": {
+        "apex": "com.android.bt.apex",
+        "sha256": "1a5ae65ccd8621c03ca5a6a035979eac74025c3ecdda19dd84f1bbd53162983e"
+      },
+      "framework_tethering_jar": {
+        "apex": "com.android.tethering.capex",
+        "sha256": "0b6f6c859301dae3276b9375c3b75333168dc5b76292ed9da03e29b59fc887bb"
+      },
+      "settings_apk_compat": {
+        "partition": "system_ext",
+        "path": "/priv-app/Settings/Settings.apk",
+        "sha256": "88fe00af16c4d44fd2abaf812ce04ecbafa255d1e268b505f4cc62a14739d2f0",
+        "classes": {
+          "com/android/settings/wifi/MiuiWifiEntryPreference": true,
+          "com/android/settings/wifi/MiuiAccessPointPreference": true,
+          "com/android/settings/MiuiTetherSettings": true,
+          "com/android/settings/AllInOneTetherSettings": true
+        },
+        "resources": {
+          "wifi_band": true,
+          "band_wifi_5g": true,
+          "band_wifi_5g_connected": true,
+          "band_wifi_24g": true,
+          "band_wifi_24g_connected": true,
+          "wifi_signal_icon_color": true,
+          "wifi_signal_icon_connected_color": true
+        },
+        "badge_compatible": true
+      }
+    },
+    "jinghu-OS4.0.5.0.XOXCNXM": {
+      "device": "jinghu",
+      "rom_version": "OS4.0.5.0.XOXCNXM",
+      "kernel_release": "6.18.21-android17-5-g284297031c53-abogki553682993-4k",
+      "statx_mnt_id_unique_supported": true,
+      "statx_evidence": "kernel>=6.8",
+      "ko_path": "/vendor_dlkm/lib/modules/wlan_drv_gen4m_eap_6639.ko",
+      "ko_sha256": "c4ed755230582b51c0dccda5ebba32c525d859cadc2ba6be0c6921818b0cb247",
+      "ko_16_functions_match_reference": true,
+      "ko_comparison_reference_sha256": "54619c2e9521fc084edd4ec93282715ac10e716ad4ae0a27ec5588fb64e618ea",
+      "wifi_cfg": {
+        "sha256": "e828d7489879fc4130c46807d6777998a81270b886fea7de39fbc3b9496d1749",
+        "size": 2252,
+        "line_count": 123,
+        "disallow_band6g_1_count": 1,
+        "disallow_band6g_0_count": 0,
+        "sta_eht": [
+          "StaEHT 1"
+        ],
+        "ap_eht": [
+          "ApEHT 0"
+        ],
+        "compatible_single_line_flip": true
+      },
+      "vendor_bt_props": {
+        "ro.bluetooth.leaudio_offload.supported": "true",
+        "persist.bluetooth.leaudio_offload.disabled": "false",
+        "ro.product.vendor.device": "mivendor"
+      },
+      "bluetooth_apk": {
+        "apex": "com.android.bt.apex",
+        "sha256": "1a5ae65ccd8621c03ca5a6a035979eac74025c3ecdda19dd84f1bbd53162983e"
+      },
+      "framework_tethering_jar": {
+        "apex": "com.android.tethering.capex",
+        "sha256": "0b6f6c859301dae3276b9375c3b75333168dc5b76292ed9da03e29b59fc887bb"
+      },
+      "settings_apk_compat": {
+        "partition": "system_ext",
+        "path": "/priv-app/Settings/Settings.apk",
+        "sha256": "88fe00af16c4d44fd2abaf812ce04ecbafa255d1e268b505f4cc62a14739d2f0",
+        "classes": {
+          "com/android/settings/wifi/MiuiWifiEntryPreference": true,
+          "com/android/settings/wifi/MiuiAccessPointPreference": true,
+          "com/android/settings/MiuiTetherSettings": true,
+          "com/android/settings/AllInOneTetherSettings": true
+        },
+        "resources": {
+          "wifi_band": true,
+          "band_wifi_5g": true,
+          "band_wifi_5g_connected": true,
+          "band_wifi_24g": true,
+          "band_wifi_24g_connected": true,
+          "wifi_signal_icon_color": true,
+          "wifi_signal_icon_connected_color": true
+        },
+        "badge_compatible": true
+      }
+    },
+    "violin-OS3.0.306.0.WOTCNXM": {
+      "device": "violin",
+      "rom_version": "OS3.0.306.0.WOTCNXM",
+      "kernel_release": "6.6.118-android15-8-gc44b714366cc-abogki519650608-4k",
+      "statx_mnt_id_unique_supported": false,
+      "statx_evidence": "pre_6.8_no_unique_mnt_id_clue",
+      "ko_path": "/vendor_dlkm/lib/modules/wlan_drv_gen4m_eap_6639.ko",
+      "ko_sha256": "9e905559c014e1d05a18472bafbde392e3473636bc1f91da4710f2175299178a",
+      "ko_16_functions_match_reference": false,
+      "ko_comparison_reference_sha256": "54619c2e9521fc084edd4ec93282715ac10e716ad4ae0a27ec5588fb64e618ea",
+      "wifi_cfg": {
+        "sha256": "fadd1ac24d5e2c5b7c3f9bed7c3c329e7f0201cf1b3aa2fea61c9419045bbe82",
+        "size": 2398,
+        "line_count": 131,
+        "disallow_band6g_1_count": 1,
+        "disallow_band6g_0_count": 0,
+        "sta_eht": [
+          "StaEHT 1"
+        ],
+        "ap_eht": [
+          "ApEHT 0"
+        ],
+        "compatible_single_line_flip": true
+      },
+      "vendor_bt_props": {
+        "ro.bluetooth.leaudio_offload.supported": "true",
+        "persist.bluetooth.leaudio_offload.disabled": "false",
+        "ro.product.vendor.device": "mivendor"
+      },
+      "bluetooth_apk": {
+        "apex": "com.android.bt.apex",
+        "sha256": "5813fb9649007857900559e38bb323a951ee00150f21468bc9b131a51e789b86"
+      },
+      "framework_tethering_jar": {
+        "apex": "com.android.tethering.capex",
+        "sha256": "351d2fd9196b59e988ce5a6b8fb1809777ef66e3e2087c3d570c164ba54040e1"
+      },
+      "settings_apk_compat": {
+        "partition": "system_ext",
+        "path": "/priv-app/Settings/Settings.apk",
+        "sha256": "58e3b73077f938efc6e24bac257b5f9d958857096731465e08974d950a7872cd",
+        "classes": {
+          "com/android/settings/wifi/MiuiWifiEntryPreference": true,
+          "com/android/settings/wifi/MiuiAccessPointPreference": true,
+          "com/android/settings/MiuiTetherSettings": true,
+          "com/android/settings/AllInOneTetherSettings": true
+        },
+        "resources": {
+          "wifi_band": true,
+          "band_wifi_5g": true,
+          "band_wifi_5g_connected": true,
+          "band_wifi_24g": true,
+          "band_wifi_24g_connected": true,
+          "wifi_signal_icon_color": true,
+          "wifi_signal_icon_connected_color": true
+        },
+        "badge_compatible": true
+      }
+    },
+    "jinghu-OS3.0.306.0.WOXCNXM": {
+      "device": "jinghu",
+      "rom_version": "OS3.0.306.0.WOXCNXM",
+      "kernel_release": "6.6.118-android15-8-gc44b714366cc-abogki519650608-4k",
+      "statx_mnt_id_unique_supported": false,
+      "statx_evidence": "pre_6.8_no_unique_mnt_id_clue",
+      "ko_path": "/vendor_dlkm/lib/modules/wlan_drv_gen4m_eap_6639.ko",
+      "ko_sha256": "95f302184f013b2f58fbdd80998eb599ee24ae9b83ae296820f195bfab4e2e30",
+      "ko_16_functions_match_reference": true,
+      "ko_comparison_reference_sha256": "9e905559c014e1d05a18472bafbde392e3473636bc1f91da4710f2175299178a",
+      "wifi_cfg": {
+        "sha256": "8a6d775edd904c2f4f4843640c934c2ee70e205e2b7b370d84d6394a441f992b",
+        "size": 2251,
+        "line_count": 122,
+        "disallow_band6g_1_count": 1,
+        "disallow_band6g_0_count": 0,
+        "sta_eht": [
+          "StaEHT 1"
+        ],
+        "ap_eht": [
+          "ApEHT 0"
+        ],
+        "compatible_single_line_flip": true
+      },
+      "vendor_bt_props": {
+        "ro.bluetooth.leaudio_offload.supported": "true",
+        "persist.bluetooth.leaudio_offload.disabled": "false",
+        "ro.product.vendor.device": "mivendor"
+      },
+      "bluetooth_apk": {
+        "apex": "com.android.bt.apex",
+        "sha256": "5813fb9649007857900559e38bb323a951ee00150f21468bc9b131a51e789b86"
+      },
+      "framework_tethering_jar": {
+        "apex": "com.android.tethering.capex",
+        "sha256": "351d2fd9196b59e988ce5a6b8fb1809777ef66e3e2087c3d570c164ba54040e1"
+      },
+      "settings_apk_compat": {
+        "partition": "system_ext",
+        "path": "/priv-app/Settings/Settings.apk",
+        "sha256": "58e3b73077f938efc6e24bac257b5f9d958857096731465e08974d950a7872cd",
+        "classes": {
+          "com/android/settings/wifi/MiuiWifiEntryPreference": true,
+          "com/android/settings/wifi/MiuiAccessPointPreference": true,
+          "com/android/settings/MiuiTetherSettings": true,
+          "com/android/settings/AllInOneTetherSettings": true
+        },
+        "resources": {
+          "wifi_band": true,
+          "band_wifi_5g": true,
+          "band_wifi_5g_connected": true,
+          "band_wifi_24g": true,
+          "band_wifi_24g_connected": true,
+          "wifi_signal_icon_color": true,
+          "wifi_signal_icon_connected_color": true
+        },
+        "badge_compatible": true
+      }
+    }
+  },
+  "os3_violin_vs_jinghu_ko": {
+    "all_16_functions_match": true,
+    "violin_sha256": "9e905559c014e1d05a18472bafbde392e3473636bc1f91da4710f2175299178a",
+    "jinghu_sha256": "95f302184f013b2f58fbdd80998eb599ee24ae9b83ae296820f195bfab4e2e30",
+    "nicCfgChipCap6GCap_disasm_verified": true,
+    "wlanProbe_mtk_band_6ghz_gate_verified": true
+  },
+  "method": "HTTP-Range CrAU v2 extraction of official OTA partitions; ELF64 16-function instruction + normalized RELA comparison; Android boot kernel version & android15-6.6 STATX_MNT_ID_UNIQUE verification; DEX/ARSC class & resource verification."
+}

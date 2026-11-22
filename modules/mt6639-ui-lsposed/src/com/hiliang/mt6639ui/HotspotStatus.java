@@ -18,6 +18,7 @@ final class HotspotStatus {
     private static final String SCHEMA_V1 = "mt6639-hotspot-status-v1";
     private static final String SCHEMA_V2 = "mt6639-hotspot-status-v2";
     private static final String SCHEMA_V3 = "mt6639-hotspot-status-v3";
+    private static final String SCHEMA_V4 = "mt6639-hotspot-status-v4";
     private static final long MAX_SNAPSHOT_BYTES = 1024;
     private static final Set<String> STATES = immutableSet(
             "idle", "starting", "active", "stopping", "unresolved", "disabled");
@@ -36,6 +37,12 @@ final class HotspotStatus {
                     "ap_key", "reconnect_6g", "reconnect_2g", "enforcing",
                     "fiveg_upstream"
             );
+    private static final Set<String> KEYS_V4 =
+            immutableSet(
+                    "schema", "state", "band", "width", "boot",
+                    "ap_key", "reconnect_6g", "reconnect_2g", "enforcing",
+                    "ready_6g", "ready_5g", "ready_2g", "local_ready"
+            );
 
     private HotspotStatus() {
     }
@@ -47,6 +54,8 @@ final class HotspotStatus {
         final boolean start6gReady;
         final boolean start5gReady;
         final boolean start2gReady;
+        final boolean localReady;
+        final boolean c02Ready;
         final String start6gBlockReason;
         final String start5gBlockReason;
         final String start2gBlockReason;
@@ -62,19 +71,42 @@ final class HotspotStatus {
                 String start5gBlockReason,
                 String start2gBlockReason
         ) {
+            this(
+                    state, summary, available,
+                    start6gReady, start5gReady, start2gReady,
+                    false, start6gReady,
+                    start6gBlockReason, start5gBlockReason, start2gBlockReason
+            );
+        }
+
+        Snapshot(
+                String state,
+                String summary,
+                boolean available,
+                boolean start6gReady,
+                boolean start5gReady,
+                boolean start2gReady,
+                boolean localReady,
+                boolean c02Ready,
+                String start6gBlockReason,
+                String start5gBlockReason,
+                String start2gBlockReason
+        ) {
             this.state = state;
             this.summary = summary;
             this.available = available;
             this.start6gReady = start6gReady;
             this.start5gReady = start5gReady;
             this.start2gReady = start2gReady;
+            this.localReady = localReady;
+            this.c02Ready = c02Ready;
             this.start6gBlockReason = start6gBlockReason;
             this.start5gBlockReason = start5gBlockReason;
             this.start2gBlockReason = start2gBlockReason;
         }
 
         boolean canStart() {
-            return canStart6g() || canStart5g() || canStart2g();
+            return canStart6g() || canStart5g() || canStart2g() || canStartLocal();
         }
 
         boolean canStart6g() {
@@ -87,6 +119,14 @@ final class HotspotStatus {
 
         boolean canStart2g() {
             return available && isIdle() && start2gReady;
+        }
+
+        boolean canStartLocal() {
+            return available && isIdle() && localReady;
+        }
+
+        boolean canRunC02() {
+            return available && isIdle() && c02Ready;
         }
 
         boolean canStop() {
@@ -104,11 +144,15 @@ final class HotspotStatus {
         String startHint() {
             if (!isIdle()) return summary;
             if (start6gReady && start5gReady && start2gReady) {
-                return "选择 6 GHz 20/40/80/160/320MHz、5 GHz 20/40/80MHz 或 2.4 GHz 20MHz";
+                return localReady
+                        ? "选择 6 GHz、5 GHz、2.4 GHz 或本地直连模式启动实验热点"
+                        : "选择 6 GHz 20/40/80/160/320MHz、5 GHz 20/40/80MHz 或 2.4 GHz 20MHz";
             }
-            if (start6gReady) return "选择 6 GHz 带宽后启动固定参数热点";
-            if (start5gReady) return "选择 5 GHz 带宽后启动固定参数热点";
-            if (start2gReady) return "选择 2.4 GHz 带宽后启动固定参数热点";
+            if (start6gReady && start2gReady) return "选择 6 GHz 或 2.4 GHz 频段与带宽启动实验热点";
+            if (start6gReady) return "选择 6 GHz 带宽后启动实验热点";
+            if (start5gReady) return "选择 5 GHz 带宽后启动实验热点";
+            if (start2gReady) return "选择 2.4 GHz 带宽后启动实验热点";
+            if (localReady) return "选择本地直连频段与带宽启动实验热点";
             return "不可启动：6G[" + start6gBlockReason
                     + "]；5G[" + start5gBlockReason
                     + "]；2.4G[" + start2gBlockReason + "]";
@@ -117,7 +161,7 @@ final class HotspotStatus {
         static Snapshot unavailable(String summary) {
             return new Snapshot(
                     "unavailable", summary, false,
-                    false, false, false,
+                    false, false, false, false, false,
                     summary, summary, summary);
         }
     }
@@ -162,7 +206,7 @@ final class HotspotStatus {
             return Snapshot.unavailable("状态不可用：快照字段数量不符");
         }
         int fieldCount = lines.length - 1;
-        if (fieldCount != 5 && fieldCount != 9 && fieldCount != 10) {
+        if (fieldCount != 5 && fieldCount != 9 && fieldCount != 10 && fieldCount != 13) {
             return Snapshot.unavailable("状态不可用：快照字段数量不符");
         }
         for (int index = 0; index < fieldCount; index++) {
@@ -181,9 +225,10 @@ final class HotspotStatus {
         String schema = fields.get("schema");
         boolean version2 = SCHEMA_V2.equals(schema);
         boolean version3 = SCHEMA_V3.equals(schema);
-        Set<String> expectedKeys = version3 ? KEYS_V3 :
-                (version2 ? KEYS_V2 : KEYS_V1);
-        if (!(SCHEMA_V1.equals(schema) || version2 || version3) ||
+        boolean version4 = SCHEMA_V4.equals(schema);
+        Set<String> expectedKeys = version4 ? KEYS_V4 :
+                (version3 ? KEYS_V3 : (version2 ? KEYS_V2 : KEYS_V1));
+        if (!(SCHEMA_V1.equals(schema) || version2 || version3 || version4) ||
                 !expectedKeys.equals(fields.keySet())) {
             return Snapshot.unavailable("状态不可用：快照字段不完整");
         }
@@ -198,7 +243,7 @@ final class HotspotStatus {
         if (!currentBoot.equals(fields.get("boot"))) {
             return Snapshot.unavailable("状态快照已过期：来自上一次启动");
         }
-        if (version2 || version3) {
+        if (version2 || version3 || version4) {
             for (String key : new String[] {
                     "ap_key", "reconnect_6g", "reconnect_2g", "enforcing"
             }) {
@@ -214,11 +259,21 @@ final class HotspotStatus {
                 return Snapshot.unavailable("状态不可用：快照取值无效");
             }
         }
+        if (version4) {
+            for (String key : new String[] {
+                    "ready_6g", "ready_5g", "ready_2g", "local_ready"
+            }) {
+                String value = fields.get(key);
+                if (!"0".equals(value) && !"1".equals(value)) {
+                    return Snapshot.unavailable("状态不可用：快照取值无效");
+                }
+            }
+        }
         if ("active".equals(state)) {
             if ("none".equals(band) || "none".equals(width)) {
                 return new Snapshot(
                         "unresolved", "状态未决：活动快照缺少频段或带宽",
-                        true, true, false, false,
+                        true, true, false, false, false, false,
                         "", "当前并非 idle", "当前并非 idle");
             }
             String bandLabel = "2g".equals(band) ? "2.4 GHz" :
@@ -230,6 +285,8 @@ final class HotspotStatus {
                     true,
                     false,
                     false,
+                    false,
+                    false,
                     "",
                     "当前并非 idle",
                     "当前并非 idle"
@@ -238,10 +295,47 @@ final class HotspotStatus {
         boolean start6gReady = true;
         boolean start5gReady = false;
         boolean start2gReady = false;
+        boolean localReady = false;
+        boolean c02Ready = true;
         StringBuilder missing6g = new StringBuilder();
         StringBuilder missing5g = new StringBuilder("旧版快照未提供 5G readiness");
         StringBuilder missing2g = new StringBuilder("旧版快照未提供 2.4G readiness");
-        if (version2 || version3) {
+        if (version4) {
+            boolean apKey = "1".equals(fields.get("ap_key"));
+            boolean reconnect6g = "1".equals(fields.get("reconnect_6g"));
+            boolean enforcing = "1".equals(fields.get("enforcing"));
+            boolean ready6g = "1".equals(fields.get("ready_6g"));
+            boolean ready5g = "1".equals(fields.get("ready_5g"));
+            boolean ready2g = "1".equals(fields.get("ready_2g"));
+            boolean readyLocal = "1".equals(fields.get("local_ready"));
+
+            missing5g.setLength(0);
+            missing2g.setLength(0);
+            if (!apKey) {
+                appendReason(missing6g, "缺少热点口令 ap.key");
+                appendReason(missing5g, "缺少热点口令 ap.key");
+                appendReason(missing2g, "缺少热点口令 ap.key");
+            }
+            if (!enforcing) {
+                appendReason(missing6g, "SELinux 未处于 Enforcing");
+                appendReason(missing5g, "SELinux 未处于 Enforcing");
+                appendReason(missing2g, "SELinux 未处于 Enforcing");
+            }
+            if (!ready6g) {
+                appendReason(missing6g, "Wi-Fi 未开启或当前 STA 频段不兼容 6 GHz");
+            }
+            if (!ready5g) {
+                appendReason(missing5g, "Wi-Fi 未开启或当前 STA 频段不兼容 5 GHz");
+            }
+            if (!ready2g) {
+                appendReason(missing2g, "Wi-Fi 未开启或当前 STA 频段不兼容 2.4 GHz");
+            }
+            start6gReady = missing6g.length() == 0;
+            start5gReady = missing5g.length() == 0;
+            start2gReady = missing2g.length() == 0;
+            localReady = apKey && enforcing && readyLocal;
+            c02Ready = apKey && enforcing && reconnect6g && ready6g;
+        } else if (version2 || version3) {
             boolean apKey = "1".equals(fields.get("ap_key"));
             boolean reconnect6g = "1".equals(fields.get("reconnect_6g"));
             boolean reconnect2g = "1".equals(fields.get("reconnect_2g"));
@@ -275,34 +369,35 @@ final class HotspotStatus {
             start6gReady = missing6g.length() == 0;
             start5gReady = missing5g.length() == 0;
             start2gReady = missing2g.length() == 0;
+            c02Ready = start6gReady;
         }
         if ("idle".equals(state)) {
             return new Snapshot(
                     "idle", "实验热点未启动", true,
-                    start6gReady, start5gReady, start2gReady,
+                    start6gReady, start5gReady, start2gReady, localReady, c02Ready,
                     missing6g.toString(), missing5g.toString(), missing2g.toString());
         }
         if ("starting".equals(state)) {
             return new Snapshot(
                     "starting", "实验热点正在启动", true,
-                    start6gReady, start5gReady, start2gReady,
+                    start6gReady, start5gReady, start2gReady, localReady, c02Ready,
                     missing6g.toString(), missing5g.toString(), missing2g.toString());
         }
         if ("stopping".equals(state)) {
             return new Snapshot(
                     "stopping", "实验热点正在停止", true,
-                    start6gReady, start5gReady, start2gReady,
+                    start6gReady, start5gReady, start2gReady, localReady, c02Ready,
                     missing6g.toString(), missing5g.toString(), missing2g.toString());
         }
         if ("disabled".equals(state)) {
             return new Snapshot(
                     "disabled", "实验热点模块已禁用", true,
-                    false, false, false,
+                    false, false, false, false, false,
                     "实验热点模块已禁用", "实验热点模块已禁用", "实验热点模块已禁用");
         }
         return new Snapshot(
                 "unresolved", "实验热点状态未决，需要检查恢复",
-                true, start6gReady, start5gReady, start2gReady,
+                true, start6gReady, start5gReady, start2gReady, localReady, c02Ready,
                 missing6g.toString(), missing5g.toString(), missing2g.toString());
     }
 

@@ -1,32 +1,33 @@
-# MT6639 / Xiaomi 15S Pro（Dijun）Wi‑Fi 与蓝牙能力研究
+# MT6639 / Xiaomi 15S Pro (Dijun) & Xiaomi Pad 7S Pro / 7 Ultra Wi-Fi 与蓝牙能力研究
 
-> **English abstract.** An open research archive of the MediaTek MT6639 Wi‑Fi/Bluetooth stack on
-> Xiaomi 15S Pro (codename *Dijun*): what the vendor firmware actually gates, which configurations
-> can be reproduced on real hardware, and where the limits are. It ships read‑only inspection and
-> evidence tooling, host‑side offline tests, native fixtures, and the source of six KernelSU/LSPosed
-> helper modules. It is **not** a one‑click unlock: the project records both successful experiments
-> and the checks that still fail. See [DISCLAIMER.md](DISCLAIMER.md) for the compliance boundary.
+> **English abstract.** An open research archive of the MediaTek MT6639 Wi-Fi/Bluetooth stack on
+> Xiaomi 15S Pro (*dijun*), Xiaomi Pad 7S Pro (*violin*), and Xiaomi Pad 7 Ultra (*jinghu*) across
+> HyperOS 3 (Linux 6.6 fallback) and HyperOS 4 (Linux 6.18): what the vendor firmware actually gates,
+> which configurations can be reproduced on real hardware, and where the limits are. It ships read-only
+> inspection and evidence tooling, host-side offline tests, native fixtures, and the source of
+> KernelSU/LSPosed helper modules. It is **not** a one-click unlock: the project records both successful
+> experiments and the checks that still fail. See [DISCLAIMER.md](DISCLAIMER.md) for the compliance boundary.
 
-这是一个**实验研究档案**，不是"全功能解锁完成"的日用发行版。它记录 MT6639 在 Xiaomi 15S Pro 上的能力边界：哪些 6GHz / Wi‑Fi 7 / EHT / 热点 / 蓝牙特性在特定固件版本和特定 AP 条件下真的跑通过，哪些只是属性声明，哪些被门禁或生命周期问题挡住。
+这是一个**实验研究档案**，不是"全功能解锁完成"的日用发行版。它记录 MT6639 在 Xiaomi 15S Pro（`dijun`）及小米平板 7S Pro（`violin`）/ 7 Ultra（`jinghu`）上的能力边界：哪些 6GHz / Wi-Fi 7 / EHT / 热点 / 蓝牙特性在特定固件版本和特定 AP 条件下真的跑通过，哪些只是属性声明，哪些被门禁或生命周期问题挡住。
 
-历史上已在特定版本、独立 6GHz 网络中取得 6GHz / 320MHz EHT 双端关联和 ICMP 证据；重复回包、吞吐、恢复机制与长期稳定性尚未全部验收。属性或 PHY 速率不代表真实业务通过。
+历史上已在特定版本、独立 6GHz 网络中取得 6GHz / 320MHz EHT 双端关联和 ICMP 证据，并在 `jinghu`（HyperOS 3 / Enforcing）实测确认 6GHz 60 信道注册与界面角标显示；重复回包、吞吐、冷启动恢复机制与长期稳定性尚未全部验收。属性或 PHY 速率不代表真实业务通过。
 
 ## 项目边界
 
 - `dijun-oneclick` 之类的外部 root / KernelSU 工具不是本项目的一部分；本项目只消费已经可用的 root 权限，不改提权链，不改 BL。
-- 不打包 root 利用链、原厂驱动/固件/NVRAM、校准数据、AP/手机凭据或第三方未经许可的 APK 与脚本。
-- 不提供"功能最全国家码"默认值，不无条件修改功率或校准。国家码、信道与功率是分离的条件。
+- 不打包 root 利用链、原厂驱动/固件、NVRAM、校准数据、AP/手机凭据或第三方未经许可的 APK 与脚本。
+- 默认不注入固定虚假地区或无条件修改功率与校准。6GHz 模块默认采用 `auto` 自适应策略：若系统当前已在 6GHz 放行地区（如用户自行使用第三方国家码模块设为 `US`/`JP`/`TW` 等）则保留现状不覆盖，仅在 `CN`/`00` 基线时临时切换并在关闭时按原基线精确还原；亦可通过 `/data/adb/mt6639-6g/country.conf` 显式设为 `keep` 或指定两位国家码。
 - 二进制构件（模块 ZIP、APK、以及其中第三方构建的 `hostapd`）只在 GitHub Release 发布，不进仓库树；仓库只保留可复现源码与构建脚本。
 
 ## 仓库内容
 
 | 目录 | 内容 |
 | --- | --- |
-| `tools/` | 只读巡检、DUP/OFDMA/打孔取证、F01–F10 矩阵运行器、发布审计；依赖 Python 3 标准库 |
-| `tests/` | 主机侧离线测试（451 项），含 C 夹具、Java LSPosed 夹具与 shell 契约测试 |
+| `tools/` | 只读巡检、DUP/OFDMA/打孔取证、F01-F10 矩阵运行器、自测日志收集器构建、发布审计；依赖 Python 3 标准库 |
+| `tests/` | 主机侧离线测试（481 项），含 C 夹具、Java LSPosed 夹具与 shell 契约测试 |
 | `native/` | 原生夹具源码：恢复事务、netdev、mlo-gate、hostapd、TWT 桥 |
-| `modules/` | 6 个 KernelSU / LSPosed 模块源码与可复现构建脚本 |
-| `docs/` | 精选研究记录 42 篇：能力台账、门禁分析、逐项验证与部署/构建说明 |
+| `modules/` | KernelSU / LSPosed 模块源码与可复现构建脚本 |
+| `docs/` | 精选研究记录 44 篇：能力台账、安装与测试指南、门禁分析、逐项验证与部署/构建说明 |
 | `release/` | 候选构件清单与校验值；构件本体在 [Releases](../../releases) |
 
 ## 快速开始
@@ -49,6 +50,7 @@ python3 tools/inspect_mt6639.py --adb /absolute/path/to/adb \
 
 ## 研究结论入口
 
+- [群友自测安装与使用指南](docs/群友自测安装与使用指南-dijun-violin-jinghu.md)：适用范围、安装步骤、国家码设置与一键导出脱敏排障日志。
 - [能力台账](docs/mt6639-plan/能力台账.md)：逐项登记已实现 / 已最小验证 / 已完整验收，以及未晋级原因。
 - [范围-手机终端适用](docs/mt6639-plan/范围-手机终端适用-20261028.md)：适配范围与用例基线。
 - [6GHz 门禁与生命周期](docs/分析-MT6639六GHz门禁与生命周期-20261022.md)、[全部监管表](docs/分析-MT6639全部监管表-20261022.md)、[信道禁用路径](docs/分析-MT6639信道禁用路径-20261022.md)、[OS4 新版兼容与动态状态卡](docs/研究-OS4新版兼容与模块状态卡-20261115.md)。
@@ -70,15 +72,17 @@ python3 tools/inspect_mt6639.py --adb /absolute/path/to/adb \
 
 ## Release 构件
 
-`v0.2.0-pre` 附五个当前候选（非稳定版，未完成全部验收；包含来自 `@xiatian410` 的 [PR #1](https://github.com/Hi-Jiajun/mt6639-wifi7-dijun/pull/1) 对 HyperOS 4 兼容表、动态状态卡与 root `0700` 工作目录的贡献与后续硬化）：
+`v0.3.0-pre`（预发布，多设备适配与国家码自定义候选，非稳定版）包含以下独立构件与一站式分发集合包（同时保留来自 `@xiatian410` [PR #1](https://github.com/Hi-Jiajun/mt6639-wifi7-dijun/pull/1) 的 OS4 兼容表、动态状态卡与 root `0700` 工作目录贡献）：
 
-| 构件 | 版本 | SHA-256（同时见 `release/SHA256SUMS`） |
+| 构件 | 说明 | SHA-256（同时见 `release/SHA256SUMS`） |
 | --- | --- | --- |
-| `mt6639-6g-v0.3.0.zip` | 6G 模块 | `1d73ed6815e642a65aac1229b8c98ad5bbfee78d140a989cb0ec8725c269dba9` |
-| `mt6639-hotspot-v0.2.22.zip` | 热点模块 | `f38c8aba8ac57acdb7a9a06a1531eb7f277151a87a315318e33bad50a8abf9f8` |
-| `mt6639-bt-v0.1.2.zip` | 蓝牙模块 | `c17f8e5a276d89c76901fc0596a0722480a502748f27e55febe513e0732efa89` |
-| `mt6639-ui-lsposed-0.2.7.apk` | UI 徽标 | `8d8f03fe49f1565e6c99fe217b420ed570d47ca9b04b5a310cabf9eb1c2922e3` |
-| `mt6639-aware-service-0.1.3.apk` | Aware 服务 | `42a75c62aa4dc00f310611eac74ccc7addf2e6ece4782287cf3c66fe410e86e7` |
+| `mt6639-6g-v0.4.1.zip` | 6G 模块 `v0.4.1`（`24`） | `4358a6cfe723966568b8a0c47b803076284cdebd05ca7246e18862bd8f02a23b` |
+| `mt6639-hotspot-v0.3.1.zip` | 热点模块 `v0.3.1`（`32`） | `a5dfb8c173535afcbfc87553b9e13e37c752b407b6a04add117f35005c1c8d01` |
+| `mt6639-bt-v0.2.0.zip` | 蓝牙模块 `v0.2.0`（`4`） | `e3ed3b48a4caff8f7ab1ebfb5153a150fd1cbe6ebf2b98eafa522292561e339e` |
+| `mt6639-ui-lsposed-0.3.0.apk` | UI 增强模块 `0.3.0`（`14`） | `3bd8da0594c07975ed637b4c5a4baca40187a3bf4e69b908f3cbad1aba4ae483` |
+| `mt6639-debug-collector-v0.1.1.zip` | 只读日志收集器 `v0.1.1`（`2`） | `94a0881423d0764d15d28ee4a3fe5eb52b3c5ff186e3c1ec6603b2364689609e` |
+| `mt6639-aware-service-0.1.3.apk` | Aware 服务 `0.1.3`（`4`） | `42a75c62aa4dc00f310611eac74ccc7addf2e6ece4782287cf3c66fe410e86e7` |
+| `mt6639-group-test-pack-20261122-v0.4.1.zip` | 自测整合包（先解压再逐个刷入内部模块与 APK） | `7bed1de252e2bf4a44882191a428447cd938b36a1661b737b44bb5fec75ae245` |
 
 这些是候选，不是"全功能可用"承诺：6G 模块在 Enforcing 生命周期、冷启动、长稳上仍有未完成项；热点模块默认关闭；Aware / 并发门禁只用于有界实验，不要在实验范围外启用。
 

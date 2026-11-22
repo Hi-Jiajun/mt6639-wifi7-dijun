@@ -2,6 +2,7 @@
 MODDIR=${0%/*}
 [ -d "$MODDIR" ] || MODDIR=/data/adb/modules/mt6639-hotspot
 . "$MODDIR/config.conf"
+sh "$MODDIR/bin/control.sh" "$MODDIR" reconcile >/dev/null 2>&1 || true
 # Publish a current-boot read-only snapshot even when automatic start is off.
 sh "$MODDIR/bin/status_snapshot.sh" "$MODDIR" init >/dev/null 2>&1 || true
 if [ "${ENABLE_SETTINGS_BRIDGE:-1}" = 1 ] &&
